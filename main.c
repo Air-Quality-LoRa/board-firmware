@@ -8,6 +8,10 @@
 #include "semtech_loramac.h"
 #include "shell.h"
 #include "periph_conf.h"
+#include "thread.h"
+#include "fmt.h"
+#include "periph/i2c.h"
+ 
 
 #if IS_USED(MODULE_SX127X)
 #include "sx127x.h"
@@ -20,8 +24,14 @@
 #include "sx126x_netdev.h"
 #include "sx126x_params.h"
 #endif
+#define RECV_MSG_QUEUE                   (4U)
 
 semtech_loramac_t loramac;
+i2c_t dev;
+
+// static msg_t _recv_queue[RECV_MSG_QUEUE];
+ 
+// static char _recv_stack[THREAD_STACKSIZE_DEFAULT];
 
 #if IS_USED(MODULE_SX127X)
 static sx127x_t sx127x;
@@ -34,6 +44,28 @@ static const uint8_t deveui[LORAMAC_DEVEUI_LEN] = {0x70,0xB3,0xD5,0x7E,0xD0,0x04
 static const uint8_t appeui[LORAMAC_APPEUI_LEN] = {0x99,0x99,0x00,0x00,0x00,0x00,0x77,0x77};
 static const uint8_t appkey[LORAMAC_APPKEY_LEN] = {0x7B,0xE3,0x2C,0x90,0x46,0x86,0x73,0x25,0xC5,0xA0,0x71,0xBD,0xB1,0xC1,0x24,0x66};
 
+// static void *_recv(void *arg)
+// {
+//     msg_init_queue(_recv_queue, RECV_MSG_QUEUE);
+ 
+//     (void)arg;
+//     while (1) {
+//         /* blocks until some data is received */
+//         semtech_loramac_recv(&loramac);
+//         loramac.rx_data.payload[loramac.rx_data.payload_len] = 0;
+//         printf("Data received: %s, port: %d\n",
+//                (char *)loramac.rx_data.payload, loramac.rx_data.port);
+//     }
+//     return NULL;
+// }
+
+// static int _startrec_handler(int argc, char **argv) {
+//     (void)argc;
+//     (void)argv;
+//     thread_create(_recv_stack, sizeof(_recv_stack),
+//               THREAD_PRIORITY_MAIN - 1, 0, _recv, NULL, "recv thread");
+//     return 0;
+// }
 
 static int _init_handler(int argc, char **argv) {
     (void)argc;
@@ -49,7 +81,7 @@ static int _keys_handler(int argc, char **argv) {
     semtech_loramac_set_appeui(&loramac,appeui);
     semtech_loramac_set_appkey(&loramac,appkey);
 
-    semtech_loramac_set_dr(&loramac,12);
+    semtech_loramac_set_dr(&loramac,9);
     return 0;
 }
 
@@ -76,11 +108,27 @@ static int _send_handler(int argc, char **argv) {
     return 0;
 }
 
+static int _temp_handler(int argc, char **argv) {
+    (void)argc;
+    (void)argv;
+    i2c_init(dev);
+    i2c_acquire(dev);
+    char i2c[2]= {0,0};
+    i2c_read_regs(dev, 0x18, 0x05, &i2c, 2, 0);
+
+    printf("i2c : %i | %i", (int) i2c[0], (int) i2c[1]);
+
+    i2c_release(dev);
+    return 0;
+}
+
 static const shell_command_t shell_commands[] = {
     { "init", "init loramac", _init_handler },
     { "keys", "init keys", _keys_handler },
     { "join", "joins ttn", _join_handler },
     { "send", "sends Hi on ttn", _send_handler },
+    { "i2c", "try i2c read", _temp_handler },
+    // { "startrec", "start rec thread", _startrec_handler},
     { NULL, NULL, NULL }
 };
 
@@ -96,7 +144,6 @@ int main(void) {
         loramac.netdev = &sx126x.netdev;
         loramac.netdev->driver = &sx126x_driver;
     #endif
-
     char line_buf[SHELL_DEFAULT_BUFSIZE];
     shell_run(shell_commands, line_buf, SHELL_DEFAULT_BUFSIZE);
     return 0;

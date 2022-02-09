@@ -6,9 +6,12 @@ RIOTBASE ?= $(CURDIR)/../RIOT
 
 USEMODULE += sx126x_stm32wl
 USEMODULE += netdev_default
-USEMODULE += xtimer shell
+USEMODULE += xtimer shell ps
+USEMODULE += fmt periph_i2c
 
 USEPKG += semtech-loramac
+
+USEMODULE += shell_commands
 
 LORA_REGION ?= EU868
 
