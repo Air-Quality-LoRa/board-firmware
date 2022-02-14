@@ -82,7 +82,9 @@ static int _pms_handler(int argc, char **argv){
         pms7003_init();
     } else if (!strcmp(argv[1],"print")){
         struct pms7003Data data;
-        pms7003_measure(&data);
+        if(pms7003_measure(&data)==1){
+            return 1;
+        }
         pms7003_print(&data);
     } else {
         printf("Usage : pms <init|print>\n");
