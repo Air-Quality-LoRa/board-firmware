@@ -11,7 +11,13 @@
 #include "thread.h"
 #include "fmt.h"
 #include "periph/i2c.h"
- 
+#include "periph/uart.h"
+#include "stdio_uart.h"
+#include "msg.h"
+#include "thread.h"
+
+#include "pms7003_driver.h"
+
 
 #if IS_USED(MODULE_SX127X)
 #include "sx127x.h"
@@ -28,10 +34,6 @@
 
 semtech_loramac_t loramac;
 i2c_t dev;
-
-// static msg_t _recv_queue[RECV_MSG_QUEUE];
- 
-// static char _recv_stack[THREAD_STACKSIZE_DEFAULT];
 
 #if IS_USED(MODULE_SX127X)
 static sx127x_t sx127x;
@@ -66,6 +68,29 @@ static const uint8_t appkey[LORAMAC_APPKEY_LEN] = {0x7B,0xE3,0x2C,0x90,0x46,0x86
 //               THREAD_PRIORITY_MAIN - 1, 0, _recv, NULL, "recv thread");
 //     return 0;
 // }
+
+static int _pms_handler(int argc, char **argv){
+    (void)argc;
+    (void)argv;
+   
+    if(argc <= 1){
+        printf("Usage : pms <init|print>\n");
+        return 1;
+    }
+
+    if(!strcmp(argv[1],"init")){
+        pms7003_init();
+    } else if (!strcmp(argv[1],"print")){
+        struct pms7003Data data;
+        pms7003_measure(&data);
+        pms7003_print(&data);
+    } else {
+        printf("Usage : pms <init|print>\n");
+        return 1;
+    }
+
+    return 0;
+}
 
 static int _init_handler(int argc, char **argv) {
     (void)argc;
@@ -128,6 +153,7 @@ static const shell_command_t shell_commands[] = {
     { "join", "joins ttn", _join_handler },
     { "send", "sends Hi on ttn", _send_handler },
     { "i2c", "try i2c read", _temp_handler },
+    { "pms", "play with pms7003 sensor", _pms_handler },
     // { "startrec", "start rec thread", _startrec_handler},
     { NULL, NULL, NULL }
 };
@@ -143,10 +169,9 @@ int main(void) {
         sx126x_setup(&sx126x, &sx126x_params[0], 0);
         loramac.netdev = &sx126x.netdev;
         loramac.netdev->driver = &sx126x_driver;
-    #endif
+    #endif 
+
     char line_buf[SHELL_DEFAULT_BUFSIZE];
     shell_run(shell_commands, line_buf, SHELL_DEFAULT_BUFSIZE);
     return 0;
-
-
 }
