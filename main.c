@@ -35,6 +35,10 @@
 semtech_loramac_t loramac;
 i2c_t dev;
 
+static msg_t _recv_queue[RECV_MSG_QUEUE];
+ 
+static char _recv_stack[THREAD_STACKSIZE_DEFAULT];
+
 #if IS_USED(MODULE_SX127X)
 static sx127x_t sx127x;
 #endif
@@ -46,28 +50,31 @@ static const uint8_t deveui[LORAMAC_DEVEUI_LEN] = {0x70,0xB3,0xD5,0x7E,0xD0,0x04
 static const uint8_t appeui[LORAMAC_APPEUI_LEN] = {0x99,0x99,0x00,0x00,0x00,0x00,0x77,0x77};
 static const uint8_t appkey[LORAMAC_APPKEY_LEN] = {0x7B,0xE3,0x2C,0x90,0x46,0x86,0x73,0x25,0xC5,0xA0,0x71,0xBD,0xB1,0xC1,0x24,0x66};
 
-// static void *_recv(void *arg)
-// {
-//     msg_init_queue(_recv_queue, RECV_MSG_QUEUE);
+static void *_recv(void *arg)
+{
+    msg_init_queue(_recv_queue, RECV_MSG_QUEUE);
  
-//     (void)arg;
-//     while (1) {
-//         /* blocks until some data is received */
-//         semtech_loramac_recv(&loramac);
-//         loramac.rx_data.payload[loramac.rx_data.payload_len] = 0;
-//         printf("Data received: %s, port: %d\n",
-//                (char *)loramac.rx_data.payload, loramac.rx_data.port);
-//     }
-//     return NULL;
-// }
+    (void)arg;
+    int i = 0;
+    while (1) {
+        i = i +1;
+        /* blocks until some data is received */
+        semtech_loramac_recv(&loramac);
+        loramac.rx_data.payload[loramac.rx_data.payload_len] = 0;
+        printf("%s\n",thread_getname(thread_getpid()));
+        printf("%i,Data receivvvvved: %s, port: %d\n", i,
+               (char *)loramac.rx_data.payload, loramac.rx_data.port);
+    }
+    return NULL;
+}
 
-// static int _startrec_handler(int argc, char **argv) {
-//     (void)argc;
-//     (void)argv;
-//     thread_create(_recv_stack, sizeof(_recv_stack),
-//               THREAD_PRIORITY_MAIN - 1, 0, _recv, NULL, "recv thread");
-//     return 0;
-// }
+static int _startrec_handler(int argc, char **argv) {
+    (void)argc;
+    (void)argv;
+    thread_create(_recv_stack, sizeof(_recv_stack),
+              THREAD_PRIORITY_MAIN - 1, 0, _recv, NULL, "recvvv thread");
+    return 0;
+}
 
 static int _pms_handler(int argc, char **argv){
     (void)argc;
@@ -109,6 +116,7 @@ static int _keys_handler(int argc, char **argv) {
     semtech_loramac_set_appkey(&loramac,appkey);
 
     semtech_loramac_set_dr(&loramac,9);
+    semtech_loramac_set_tx_mode(&loramac,1);
     return 0;
 }
 
@@ -156,7 +164,7 @@ static const shell_command_t shell_commands[] = {
     { "send", "sends Hi on ttn", _send_handler },
     { "i2c", "try i2c read", _temp_handler },
     { "pms", "play with pms7003 sensor", _pms_handler },
-    // { "startrec", "start rec thread", _startrec_handler},
+    { "startrec", "start rec thread", _startrec_handler},
     { NULL, NULL, NULL }
 };
 

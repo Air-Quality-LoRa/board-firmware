@@ -7,7 +7,8 @@ RIOTBASE ?= $(CURDIR)/../RIOT
 USEMODULE += sx126x_stm32wl
 USEMODULE += netdev_default
 USEMODULE += xtimer shell ps
-USEMODULE += fmt periph_i2c 
+USEMODULE += fmt periph_i2c
+USEMODULE += semtech_loramac_rx
 
 FEATURE_REQUIRED += periph_uart
 
