@@ -81,7 +81,7 @@ static int _pms_handler(int argc, char **argv){
     (void)argv;
 
     if(argc <= 1){
-        printf("Usage : pms <init|print>\n");
+        printf("Usage : pms <init|measure>\n");
         return 1;
     }
 
@@ -99,11 +99,11 @@ static int _pms_handler(int argc, char **argv){
             return 1;
         }
     } else if (!strcmp(argv[1],"print")){
-        // struct pms7003Data data;
-        // if(pms7003_measure(&data)==1){
-        //     return 1;
-        // }
-        // pms7003_print(&data);
+        struct pms7003Data data;
+        if(pms7003_measure(&data)==1){
+            return 1;
+        }
+        pms7003_print(&data);
     } else {
         printf("Usage : pms <init|print>\n");
         return 1;
@@ -170,15 +170,13 @@ static int _temp_handler(int argc, char **argv) {
     }
 
 
-    while(1){
-        double humidity = (double)bme280_read_humidity(&bme_dev);
-        double temperature = (double)bmx280_read_temperature(&bme_dev);
+    double humidity = (double)bme280_read_humidity(&bme_dev);
+    double temperature = (double)bmx280_read_temperature(&bme_dev);
 
-        printf("humidity   %f %%\n", humidity);
-        printf("tempeature %f °C\n", temperature/(double)100);
-        printf("pressure   %li Pa\n", bmx280_read_pressure(&bme_dev));
+    printf("humidity   %f %%\n", humidity);
+    printf("tempeature %f °C\n", temperature/(double)100);
+    printf("pressure   %li Pa\n", bmx280_read_pressure(&bme_dev));
 
-    }
 
     // i2c_init(dev);
     // i2c_acquire(dev);

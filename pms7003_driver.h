@@ -27,9 +27,14 @@ enum state{
     exitingSleep, 
     passive, 
     readReady,
-    readAsked };
+    readAsked
+};
 
-enum serviceFrameType{passiveConfirm, activeConfirm, sleepConfirm};
+enum serviceFrameType{
+    passiveConfirm, 
+    activeConfirm, 
+    sleepConfirm
+};
 
 /**
  * @name    Definitions for messages received by the event loop
@@ -64,9 +69,9 @@ void pms7003_print(struct pms7003Data *data);
  */
 void pms7003_init(uint8_t useSleepMode);
 
-// /**
-//  * Get the last valid mesure. 
-//  * @param data a pointer to the pms7003Data to fill in
-//  * @return 1 if pms was not initialised and data not filled in, 0 if everything went well
-//  */ 
-// uint8_t pms7003_measure(struct pms7003Data *data);
+/**
+ * Get the last valid mesure. 
+ * @param data a pointer to the pms7003Data to fill in
+ * @return 1 if pms was not initialised and data not filled in, 0 if everything went well
+ */ 
+uint8_t pms7003_measure(struct pms7003Data *data);

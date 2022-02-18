@@ -11,8 +11,10 @@
 
 #define USED_UART UART_DEV(1)
 
+#define RCV_QUEUE_SIZE  8
 char pms7003_thread_stack[THREAD_STACKSIZE_MAIN];
-kernel_pid_t pms7003_pid;
+static msg_t rcv_queue[RCV_QUEUE_SIZE];
+kernel_pid_t pms7003_pid = 0;
 
 static struct pms7003Data lastMesure;
 
@@ -57,7 +59,7 @@ uint8_t queue_empty_pid(void) {
 #define DATA_FRAME_LENGTH RX_FRAME_SIZE
 #define SERVICE_FRAME_LENGTH 8
 
-#define VALID_DATA_AFTER_WAKEUP_SEC 30
+#define VALID_DATA_AFTER_WAKEUP_SEC 5
 #define TIME_BEFORE_GOING_BACK_TO_SLEEP_SEC 5
 
 uint8_t _verify_checksum(uint8_t* frame, uint8_t lenght){
@@ -74,38 +76,6 @@ static inline uint8_t _check_data_frame_valid(uint8_t* frame){
 
 static inline uint8_t _check_service_frame_valid(uint8_t* frame){
     return _verify_checksum(frame, SERVICE_FRAME_LENGTH);
-}
-
-void pms7003_print(struct pms7003Data *data){
-    printf("\n====PMS DATA====\n\
-    ---Concentrations---\n\
-    pm1.0 Standard : %i\n\
-    pm2_5 Standard : %i\n\
-    pm10 Standard : %i\n\
-    \n\
-    pm1_0 Atmospheric : %i\n\
-    pm2_5 Atmospheric : %i\n\
-    pm10 Atmospheric : %i\n\
-    \n\
-    ---Particles---\n\
-    >=0.3 : %i\n\
-    >=0.5 : %i\n\
-    >=1.0 : %i\n\
-    >=2.5 : %i\n\
-    >=5.0 : %i\n\
-    >= 10 : %i\n",
-    data->pm1_0Standard,
-    data->pm2_5Standard,
-    data->pm10Standard,
-    data->pm1_0Atmospheric,
-    data->pm2_5Atmospheric,
-    data->pm10Atmospheric,
-    data->particuleGT0_3,
-    data->particuleGT0_5,
-    data->particuleGT1_0,
-    data->particuleGT2_5,
-    data->particuleGT5_0,
-    data->particuleGT10);
 }
 
 uint8_t _decode_data_frame(struct pms7003Data *data ,uint8_t* frame){
@@ -202,20 +172,12 @@ static inline enum state _pms7003_handle_error(char* debugMessage){
     return initialization;
 }
 
-uint8_t pms7003_measure(struct pms7003Data *data){
-    if(currentState==uninitialized){
-        return 1;
-    }
-    memcpy(data, &lastMesure, sizeof(struct pms7003Data));
-    return 0;
-}
-
-
 void* _pms7003_event_loop(void *arg){
     (void) arg;
 
     static ztimer_t backIntoSleepModeTimer = {0};
 
+    msg_init_queue(rcv_queue, RCV_QUEUE_SIZE);
 
     while (1) {
         msg_t msg;
@@ -268,14 +230,14 @@ void* _pms7003_event_loop(void *arg){
             case readAsked:
                 kernel_pid_t respondTo;
                 if(queue_pop_pid(&respondTo)){
-                    DEBUG("[pms7003] WARNING : Data was read for user but no users waiting");
+                    DEBUG("[pms7003] WARNING : Data was read for user but no users waiting\n");
                 } else {
+                    DEBUG("[pms7003] Sent data to user thread\n");
                     msg_t msgSend;
                     msg.type = EVENT_LOOP_RESPONSE_SUCCESS;
                     msgSend.content.ptr=&lastMesure;
                     msg_send(&msgSend, respondTo);
                 }
-
                 if(useTheSleepMode){
                     msg_t msgSend;
                     msgSend.type = MSG_TYPE_TIMER_SLEEP_TIMEOUT;
@@ -296,6 +258,7 @@ void* _pms7003_event_loop(void *arg){
                 currentState=readReady;
                 break;
             default:
+                _pms7003_handle_error("Unexpected data read from sensor");
                 break;
             }
             break;
@@ -323,7 +286,7 @@ void* _pms7003_event_loop(void *arg){
                 msgSend.type = MSG_TYPE_TIMER_VALID_DATA;
                 ztimer_t timer = {0};
                 ztimer_set_msg(ZTIMER_MSEC, &timer, VALID_DATA_AFTER_WAKEUP_SEC*1000, &msgSend, pms7003_pid); //TODO : change to seconds for better sleep?
-                DEBUG("[pms7003] now in passive mode, it will be ready in 30 seconds\n");
+                DEBUG("[pms7003] now in passive mode, it will be ready in x seconds\n");
                 currentState = passive;
                 break;
             
@@ -348,6 +311,17 @@ void* _pms7003_event_loop(void *arg){
             {
             case passive:
                 DEBUG("[pms7003] Sensor is ready\n");
+                
+                if(queue_empty_pid()){
+                    DEBUG("[pms7003] No users waiting");
+                } else {
+                    msg_t msgRead;
+                    msgRead.type = MSG_TYPE_READ_SENSOR_DATA;
+                    if(!msg_try_send(&msgRead, pms7003_pid)){
+                        DEBUG("[pms7003] WARNING : Could send read sensor data to self");
+                    }
+                    DEBUG("[pms7003] An user waiting, asked read");
+                }
                 currentState=readReady;
                 break;
             
@@ -388,6 +362,7 @@ void* _pms7003_event_loop(void *arg){
         case MSG_TYPE_USER_READ_SENSOR_DATA:
             DEBUG("[pms7003] Received read event from user\n");
             
+            //Saving the user pid to rely them later
             if(queue_push_pid(msg.sender_pid)){
                 DEBUG("[pms7003] user read event could not be added, queue full!\n");
                 msg_t msgSend;
@@ -398,11 +373,19 @@ void* _pms7003_event_loop(void *arg){
                 DEBUG("[ pms7003] user read event added to queue\n");
             }
 
-            
+            //if in read mode, fire a read event
+            if(currentState == readReady){
+                msg_t msgRead;
+                msgRead.type = MSG_TYPE_READ_SENSOR_DATA;
+                msg_try_send(&msgRead, pms7003_pid);
+            }
+
+            //in in sleeping mode, waking up and change state
             if(currentState == sleeping){
                 uart_write(USED_UART, wakeupFrame, 7);
                 currentState = exitingSleep;
             }
+            
             break;
         
         default:
@@ -411,6 +394,8 @@ void* _pms7003_event_loop(void *arg){
         }
     }
 }
+
+//---------USER METHODS--------
 
 void pms7003_init(uint8_t useSleepMode){    
     uart_init(USED_UART,9600, _pms7003_rx_handler, NULL);
@@ -426,4 +411,52 @@ void pms7003_init(uint8_t useSleepMode){
     msg.type = MSG_TYPE_INIT_SENSOR;
     msg.content.value = useSleepMode;
     msg_send(&msg, pms7003_pid);
+}
+
+void pms7003_print(struct pms7003Data *data){
+    printf("\n====PMS DATA====\n\
+    ---Concentrations---\n\
+    pm1.0 Standard : %i\n\
+    pm2_5 Standard : %i\n\
+    pm10 Standard : %i\n\
+    \n\
+    pm1_0 Atmospheric : %i\n\
+    pm2_5 Atmospheric : %i\n\
+    pm10 Atmospheric : %i\n\
+    \n\
+    ---Particles---\n\
+    >=0.3 : %i\n\
+    >=0.5 : %i\n\
+    >=1.0 : %i\n\
+    >=2.5 : %i\n\
+    >=5.0 : %i\n\
+    >= 10 : %i\n",
+    data->pm1_0Standard,
+    data->pm2_5Standard,
+    data->pm10Standard,
+    data->pm1_0Atmospheric,
+    data->pm2_5Atmospheric,
+    data->pm10Atmospheric,
+    data->particuleGT0_3,
+    data->particuleGT0_5,
+    data->particuleGT1_0,
+    data->particuleGT2_5,
+    data->particuleGT5_0,
+    data->particuleGT10);
+}
+
+uint8_t pms7003_measure(struct pms7003Data *data){
+    msg_t msgSend;
+    msgSend.type = MSG_TYPE_USER_READ_SENSOR_DATA;
+
+    if(pms7003_pid==0){
+        return 1;
+    }
+    msg_send(&msgSend, pms7003_pid);
+
+    msg_t msgRecieve;
+    msg_receive(&msgRecieve);
+
+    memcpy(data, msgRecieve.content.ptr, sizeof(struct pms7003Data));
+    return 0;
 }
