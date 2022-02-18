@@ -11,10 +11,9 @@
 #include "thread.h"
 #include "fmt.h"
 #include "periph/i2c.h"
-#include "periph/uart.h"
-#include "stdio_uart.h"
-#include "msg.h"
-#include "thread.h"
+
+#include "bmx280_params.h"
+#include <bmx280.h>
 
 #include "pms7003_driver.h"
 
@@ -33,7 +32,8 @@
 #define RECV_MSG_QUEUE                   (4U)
 
 semtech_loramac_t loramac;
-i2c_t dev;
+i2c_t dev = I2C_DEV(0);
+bmx280_t bme_dev;
 
 static msg_t _recv_queue[RECV_MSG_QUEUE];
  
@@ -79,20 +79,31 @@ static int _startrec_handler(int argc, char **argv) {
 static int _pms_handler(int argc, char **argv){
     (void)argc;
     (void)argv;
-   
+
     if(argc <= 1){
         printf("Usage : pms <init|print>\n");
         return 1;
     }
 
     if(!strcmp(argv[1],"init")){
-        pms7003_init();
-    } else if (!strcmp(argv[1],"print")){
-        struct pms7003Data data;
-        if(pms7003_measure(&data)==1){
+        if(argc <= 2){
+            printf("Usage : pms init <powersave|nopowersave>\n");
             return 1;
         }
-        pms7003_print(&data);
+        if(!strcmp(argv[2], "powersave")){
+            pms7003_init(1);
+        } else if(!strcmp(argv[2], "nopowersave")){
+            pms7003_init(0);
+        } else {
+            printf("Usage : pms init <powersave|nopowersave>\n");
+            return 1;
+        }
+    } else if (!strcmp(argv[1],"print")){
+        // struct pms7003Data data;
+        // if(pms7003_measure(&data)==1){
+        //     return 1;
+        // }
+        // pms7003_print(&data);
     } else {
         printf("Usage : pms <init|print>\n");
         return 1;
@@ -146,14 +157,37 @@ static int _send_handler(int argc, char **argv) {
 static int _temp_handler(int argc, char **argv) {
     (void)argc;
     (void)argv;
-    i2c_init(dev);
-    i2c_acquire(dev);
-    char i2c[2]= {0,0};
-    i2c_read_regs(dev, 0x18, 0x05, &i2c, 2, 0);
 
-    printf("i2c : %i | %i", (int) i2c[0], (int) i2c[1]);
+    int ret = bmx280_init(&bme_dev, &bmx280_params[0]);
+    if(ret == BMX280_OK){
+        printf("BMX280_OK\n");
+    }
+    if(ret == BMX280_ERR_BUS){
+        printf("BMX280_ERR_BUS\n");
+    }
+    if(ret == BMX280_ERR_NODEV){
+        printf("BMX280_ERR_NODEV\n");
+    }
 
-    i2c_release(dev);
+
+    while(1){
+        double humidity = (double)bme280_read_humidity(&bme_dev);
+        double temperature = (double)bmx280_read_temperature(&bme_dev);
+
+        printf("humidity   %f %%\n", humidity);
+        printf("tempeature %f °C\n", temperature/(double)100);
+        printf("pressure   %li Pa\n", bmx280_read_pressure(&bme_dev));
+
+    }
+
+    // i2c_init(dev);
+    // i2c_acquire(dev);
+    // char i2c[2]= {0,0};
+    // i2c_read_regs(dev, 0x76, 0x05, &i2c, 2, 0);
+
+    // printf("i2c : %i | %i", (int) i2c[0], (int) i2c[1]);
+
+    // i2c_release(dev);
     return 0;
 }
 

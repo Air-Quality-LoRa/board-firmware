@@ -9,6 +9,7 @@ USEMODULE += netdev_default
 USEMODULE += xtimer shell ps
 USEMODULE += fmt periph_i2c
 USEMODULE += semtech_loramac_rx
+USEMODULE += bme280_i2c
 
 FEATURE_REQUIRED += periph_uart
 
