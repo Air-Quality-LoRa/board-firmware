@@ -11,6 +11,7 @@
 #include "thread.h"
 #include "fmt.h"
 #include "periph/i2c.h"
+#include "ztimer.h"
 
 #include "bmx280_params.h"
 #include <bmx280.h>
@@ -81,7 +82,7 @@ static int _pms_handler(int argc, char **argv){
     (void)argv;
 
     if(argc <= 1){
-        printf("Usage : pms <init|measure>\n");
+        printf("Usage : pms <init|print>\n");
         return 1;
     }
 
@@ -99,11 +100,27 @@ static int _pms_handler(int argc, char **argv){
             return 1;
         }
     } else if (!strcmp(argv[1],"print")){
-        struct pms7003Data data;
-        if(pms7003_measure(&data)==1){
-            return 1;
+        if(argc > 2){
+            if(!strcmp(argv[2],"csv")){
+                while(1){
+                    struct pms7003Data data;
+                    if(pms7003_measure(&data)==1){
+                        return 1;
+                    }
+                    pms7003_print_csv(&data);
+                    ztimer_sleep (ZTIMER_MSEC, 10000);
+                }
+            } else {
+                printf("Usage : pms print [csv]\n");
+                return 1;
+            }
+        } else {
+            struct pms7003Data data;
+            if(pms7003_measure(&data)==1){
+                return 1;
+            }
+            pms7003_print(&data);
         }
-        pms7003_print(&data);
     } else {
         printf("Usage : pms <init|print>\n");
         return 1;

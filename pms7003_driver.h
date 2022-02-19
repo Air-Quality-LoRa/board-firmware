@@ -27,7 +27,8 @@ enum state{
     exitingSleep, 
     passive, 
     readReady,
-    readAsked
+    readAsked,
+    cooldownAfterRead
 };
 
 enum serviceFrameType{
@@ -47,8 +48,9 @@ enum serviceFrameType{
 #define MSG_TYPE_PMS_RECIEVED_ERROR 0x6
 #define MSG_TYPE_TIMER_VALID_DATA 0x7
 #define MSG_TYPE_TIMER_SLEEP_TIMEOUT 0x8
-#define MSG_TYPE_READ_SENSOR_DATA 0x9
-#define MSG_TYPE_USER_READ_SENSOR_DATA 0xa
+#define MSG_TYPE_TIMER_READ_COOLDOWN 0x9
+#define MSG_TYPE_READ_SENSOR_DATA 0xa
+#define MSG_TYPE_USER_READ_SENSOR_DATA 0xb
 
 /**
  * @name    Definitions for response messages from the pms thread to the main thread 
@@ -62,6 +64,8 @@ enum serviceFrameType{
  * @param data a pointer to a psm7003Data to display 
  */
 void pms7003_print(struct pms7003Data *data);
+
+void pms7003_print_csv(struct pms7003Data *data);
 
 /**
  * Init the uart 1 (or rx2,tx2 on the card)

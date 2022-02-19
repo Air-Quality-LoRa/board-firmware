@@ -61,6 +61,7 @@ uint8_t queue_empty_pid(void) {
 
 #define VALID_DATA_AFTER_WAKEUP_SEC 5
 #define TIME_BEFORE_GOING_BACK_TO_SLEEP_SEC 5
+#define TIME_BETWEEN_TWO_MEASURES_MSEC 100
 
 uint8_t _verify_checksum(uint8_t* frame, uint8_t lenght){
     uint16_t checksum = 0;
@@ -228,6 +229,13 @@ void* _pms7003_event_loop(void *arg){
                 break;
 
             case readAsked:
+
+                msg_t msgSend;
+                msgSend.type = MSG_TYPE_TIMER_READ_COOLDOWN;
+                ztimer_t cooldownTimer = {0};
+                ztimer_set_msg(ZTIMER_MSEC, &cooldownTimer, TIME_BETWEEN_TWO_MEASURES_MSEC, &msgSend, pms7003_pid);
+                DEBUG("[pms7003] Cooldown between two reads set.\n");
+
                 kernel_pid_t respondTo;
                 if(queue_pop_pid(&respondTo)){
                     DEBUG("[pms7003] WARNING : Data was read for user but no users waiting\n");
@@ -238,6 +246,7 @@ void* _pms7003_event_loop(void *arg){
                     msgSend.content.ptr=&lastMesure;
                     msg_send(&msgSend, respondTo);
                 }
+
                 if(useTheSleepMode){
                     msg_t msgSend;
                     msgSend.type = MSG_TYPE_TIMER_SLEEP_TIMEOUT;
@@ -250,12 +259,7 @@ void* _pms7003_event_loop(void *arg){
                     DEBUG("[pms7003] timer to go back to sleep is reset\n");
                 }
                 
-                if(!queue_empty_pid()){
-                    msg_t msgReadAgain;
-                    msgReadAgain.type = MSG_TYPE_READ_SENSOR_DATA;
-                    msg_try_send(&msgReadAgain, pms7003_pid);
-                }
-                currentState=readReady;
+                currentState=cooldownAfterRead;
                 break;
             default:
                 _pms7003_handle_error("Unexpected data read from sensor");
@@ -285,7 +289,7 @@ void* _pms7003_event_loop(void *arg){
                 msg_t msgSend;
                 msgSend.type = MSG_TYPE_TIMER_VALID_DATA;
                 ztimer_t timer = {0};
-                ztimer_set_msg(ZTIMER_MSEC, &timer, VALID_DATA_AFTER_WAKEUP_SEC*1000, &msgSend, pms7003_pid); //TODO : change to seconds for better sleep?
+                ztimer_set_msg(ZTIMER_MSEC, &timer, VALID_DATA_AFTER_WAKEUP_SEC*1000, &msgSend, pms7003_pid);
                 DEBUG("[pms7003] now in passive mode, it will be ready in x seconds\n");
                 currentState = passive;
                 break;
@@ -313,7 +317,7 @@ void* _pms7003_event_loop(void *arg){
                 DEBUG("[pms7003] Sensor is ready\n");
                 
                 if(queue_empty_pid()){
-                    DEBUG("[pms7003] No users waiting");
+                    DEBUG("[pms7003] No users waiting\n");
                 } else {
                     msg_t msgRead;
                     msgRead.type = MSG_TYPE_READ_SENSOR_DATA;
@@ -346,6 +350,25 @@ void* _pms7003_event_loop(void *arg){
             }
             break;
 
+        case MSG_TYPE_TIMER_READ_COOLDOWN:
+            DEBUG("[pms7003] Received read timer cooldown\n");
+            switch (currentState)
+            {
+            case cooldownAfterRead:
+                if(!queue_empty_pid()){
+                    msg_t msgReadAgain;
+                    msgReadAgain.type = MSG_TYPE_READ_SENSOR_DATA;
+                    msg_try_send(&msgReadAgain, pms7003_pid);
+                    DEBUG("[pms7003] User queue not empty, next read sheduled\n");
+                }
+                currentState = readReady;
+                break;
+            
+            default:
+                break;
+            }
+            break;
+
         case MSG_TYPE_READ_SENSOR_DATA:
             DEBUG("[pms7003] Received read event\n");
             switch (currentState){
@@ -370,7 +393,7 @@ void* _pms7003_event_loop(void *arg){
                 msgSend.content.ptr = NULL;
                 msg_send(&msgSend, msg.sender_pid);
             } else {
-                DEBUG("[ pms7003] user read event added to queue\n");
+                DEBUG("[pms7003] user read event added to queue\n");
             }
 
             //if in read mode, fire a read event
@@ -387,11 +410,11 @@ void* _pms7003_event_loop(void *arg){
             }
             
             break;
-        
         default:
             DEBUG("[pms7003] UNKNOWN event, ignoring...\n");
             break;
         }
+        DEBUG("---Now in state : %i\n", currentState);
     }
 }
 
@@ -431,6 +454,23 @@ void pms7003_print(struct pms7003Data *data){
     >=2.5 : %i\n\
     >=5.0 : %i\n\
     >= 10 : %i\n",
+    data->pm1_0Standard,
+    data->pm2_5Standard,
+    data->pm10Standard,
+    data->pm1_0Atmospheric,
+    data->pm2_5Atmospheric,
+    data->pm10Atmospheric,
+    data->particuleGT0_3,
+    data->particuleGT0_5,
+    data->particuleGT1_0,
+    data->particuleGT2_5,
+    data->particuleGT5_0,
+    data->particuleGT10);
+}
+
+void pms7003_print_csv(struct pms7003Data *data){
+    printf("%li,%i;%i;%i;%i;%i;%i;%i;%i;%i;%i;%i;%i<><>\n",
+    ztimer_now(ZTIMER_MSEC),
     data->pm1_0Standard,
     data->pm2_5Standard,
     data->pm10Standard,
