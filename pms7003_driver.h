@@ -49,8 +49,9 @@ enum serviceFrameType{
 #define MSG_TYPE_TIMER_VALID_DATA 0x7
 #define MSG_TYPE_TIMER_SLEEP_TIMEOUT 0x8
 #define MSG_TYPE_TIMER_READ_COOLDOWN 0x9
-#define MSG_TYPE_READ_SENSOR_DATA 0xa
-#define MSG_TYPE_USER_READ_SENSOR_DATA 0xb
+#define MSG_TYPE_TIMER_PMS_NOT_RESPONDING 0xa
+#define MSG_TYPE_READ_SENSOR_DATA 0xb
+#define MSG_TYPE_USER_READ_SENSOR_DATA 0xc
 
 /**
  * @name    Definitions for response messages from the pms thread to the main thread 

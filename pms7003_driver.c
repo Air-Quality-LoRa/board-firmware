@@ -21,15 +21,10 @@ static struct pms7003Data lastMesure;
 static enum state currentState = uninitialized;
 static uint8_t useTheSleepMode = 0;
 
-static const uint8_t readFrame[] =          {0x42, 0x4d, 0xe2, 0x00, 0x00, 0x01, 0x71};
-static const uint8_t passiveModeFrame[] =   {0x42, 0x4d, 0xe1, 0x00, 0x00, 0x01, 0x70};
-//static const uint8_t activeModeFrame[] =    {0x42, 0x4d, 0xe1, 0x00, 0x01, 0x01, 0x71};
-static const uint8_t sleepFrame[] =         {0x42, 0x4d, 0xe4, 0x00, 0x00, 0x01, 0x73};
-static const uint8_t wakeupFrame[] =        {0x42, 0x4d, 0xe4, 0x00, 0x01, 0x01, 0x74};
-
-static uint8_t framePointer = 0;
 
 
+
+// ------------ user response fifo--------
 #define MAX_USER_READ_QUEUE_SIZE 10
 static uint8_t pidDataRead = 0;
 static uint8_t pidDataWrite = 0;
@@ -58,13 +53,30 @@ uint8_t queue_empty_pid(void) {
     return pidDataRead==pidDataWrite;
 }
 
-#define RX_FRAME_SIZE 32
-#define DATA_FRAME_LENGTH RX_FRAME_SIZE
-#define SERVICE_FRAME_LENGTH 8
 
+//-------- timers -------
 #define VALID_DATA_AFTER_WAKEUP_SEC 5
 #define TIME_BEFORE_GOING_BACK_TO_SLEEP_SEC 5
 #define TIME_BETWEEN_TWO_MEASURES_MSEC 100
+
+#define TIME_BEFORE_NO_RESPONSE_WATCHDOG_FIRES_MSEC 5000
+static ztimer_t timerNoResponseFromSensor = {0};
+
+//-------- messages --------
+msg_t msgNoResponseFromSensor;
+
+
+//-------- frames handling ------------
+static uint8_t framePointer = 0;
+
+#define DATA_FRAME_LENGTH 32
+#define SERVICE_FRAME_LENGTH 8
+
+static const uint8_t readFrame[] =          {0x42, 0x4d, 0xe2, 0x00, 0x00, 0x01, 0x71};
+static const uint8_t passiveModeFrame[] =   {0x42, 0x4d, 0xe1, 0x00, 0x00, 0x01, 0x70};
+//static const uint8_t activeModeFrame[] =    {0x42, 0x4d, 0xe1, 0x00, 0x01, 0x01, 0x71};
+static const uint8_t sleepFrame[] =         {0x42, 0x4d, 0xe4, 0x00, 0x00, 0x01, 0x73};
+static const uint8_t wakeupFrame[] =        {0x42, 0x4d, 0xe4, 0x00, 0x01, 0x01, 0x74};
 
 uint8_t _verify_checksum(uint8_t* frame, uint8_t lenght){
     uint16_t checksum = 0;
@@ -131,7 +143,7 @@ uint8_t _decode_service_frame(enum serviceFrameType *frameType, uint8_t* frame){
  */
 static void _pms7003_rx_handler(void *arg, uint8_t data){
     (void) arg;
-    static uint8_t currentFrame[RX_FRAME_SIZE] = {};
+    static uint8_t currentFrame[DATA_FRAME_LENGTH] = {};
 
     currentFrame[framePointer++] = data;
     if(framePointer == 8){
@@ -153,7 +165,7 @@ static void _pms7003_rx_handler(void *arg, uint8_t data){
         }
     }
 
-    if(framePointer >= RX_FRAME_SIZE){     
+    if(framePointer >= DATA_FRAME_LENGTH){     
         //TODO: put mutex on lastMesure
         if(!_decode_data_frame(&lastMesure, currentFrame)){
             msg_t msg;
@@ -169,9 +181,28 @@ static void _pms7003_rx_handler(void *arg, uint8_t data){
     }
 }
 
+//------- pms thread--------
+
+inline static void _pms7003_setNoResponseFromSensorWatchdog(void){
+    msgNoResponseFromSensor.type = MSG_TYPE_TIMER_PMS_NOT_RESPONDING;
+
+    if(ztimer_remove(ZTIMER_MSEC, &timerNoResponseFromSensor)){
+        DEBUG("[pms7008] No response form sensor watchdog is reset\n");
+    }
+
+    ztimer_set_msg(ZTIMER_MSEC, &timerNoResponseFromSensor, TIME_BEFORE_NO_RESPONSE_WATCHDOG_FIRES_MSEC, &msgNoResponseFromSensor, pms7003_pid);
+    DEBUG("[pms7003] No response from sensor watchdog is set\n");  
+}
+
+inline static void _pms7003_stopNoResponseFromSensorWatchdog(void){
+    ztimer_remove(ZTIMER_MSEC, &timerNoResponseFromSensor);
+}
+
 static inline enum state _pms7003_handle_error(char* debugMessage){
-    DEBUG("[pms7003] FAIL : %s\n[pms7003] Reinitialization ...", debugMessage);
+    DEBUG("[pms7003] FAIL : %s\n[pms7003] Reinitialization ...\n", debugMessage);
     uart_write(USED_UART, wakeupFrame, 7);
+    _pms7003_setNoResponseFromSensorWatchdog();
+
     framePointer = 0;
     return initialization;
 }
@@ -193,8 +224,9 @@ void* _pms7003_event_loop(void *arg){
             switch (currentState)
             {
             case uninitialized:
-                DEBUG("[pms7003] Initialization...\n");
                 uart_write(USED_UART, wakeupFrame, 7);
+                _pms7003_setNoResponseFromSensorWatchdog();
+
                 useTheSleepMode = msg.content.value;
 
                 if(msg.content.value){
@@ -204,7 +236,6 @@ void* _pms7003_event_loop(void *arg){
                 }
 
                 currentState=initialization;
-                
                 break;
             default:
                 DEBUG("[pms7003] WARNING : Sensor was already initialized, action ignored\n");
@@ -214,25 +245,35 @@ void* _pms7003_event_loop(void *arg){
         
         case MSG_TYPE_PMS_RECEIVED_DATA:
             DEBUG("[pms7003] Received data from sensor\n");
+            _pms7003_stopNoResponseFromSensorWatchdog();
+
             switch (currentState)
             {
             case initialization:
-                if(useTheSleepMode){
+                if(useTheSleepMode && queue_empty_pid()){
                     uart_write(USED_UART, sleepFrame, 7);
+                    _pms7003_setNoResponseFromSensorWatchdog();
+
                     currentState = sleepingNotConfirmed;
                 } else {
+                    if(useTheSleepMode && !queue_empty_pid()){
+                        DEBUG("[pms7003] Bypassing sleep mode beacause user is waiting to read\n");
+                    }
                     uart_write(USED_UART, passiveModeFrame, 7);
+                    _pms7003_setNoResponseFromSensorWatchdog();
+
                     currentState = passiveNotConfirmed;
                 }
                 break;
 
             case exitingSleep:
                 uart_write(USED_UART, passiveModeFrame, 7);
+                _pms7003_setNoResponseFromSensorWatchdog();
+
                 currentState = passiveNotConfirmed;
                 break;
 
             case readAsked:
-
                 msg_t msgSend;
                 msgSend.type = MSG_TYPE_TIMER_READ_COOLDOWN;
                 ztimer_t cooldownTimer = {0};
@@ -255,11 +296,11 @@ void* _pms7003_event_loop(void *arg){
                     msgSend.type = MSG_TYPE_TIMER_SLEEP_TIMEOUT;
 
                     if(ztimer_remove(ZTIMER_MSEC, &backIntoSleepModeTimer)){
-                        DEBUG("[pms7008] Timer to go back to sleep is resetting...");
+                        DEBUG("[pms7008] Timer to go back to sleep was removed\n");
                     }
 
                     ztimer_set_msg(ZTIMER_MSEC, &backIntoSleepModeTimer, TIME_BEFORE_GOING_BACK_TO_SLEEP_SEC*1000, &msgSend, pms7003_pid);
-                    DEBUG("[pms7003] timer to go back to sleep is reset\n");
+                    DEBUG("[pms7003] timer to go back to sleep is set\n");
                 }
                 
                 currentState=cooldownAfterRead;
@@ -272,6 +313,8 @@ void* _pms7003_event_loop(void *arg){
 
         case MSG_TYPE_PMS_RECEIVED_SLEEP_CONFIRM:
             DEBUG("[pms7003] Received Sleep confirm from sensor\n");
+            _pms7003_stopNoResponseFromSensorWatchdog();
+
             switch (currentState)
             {
             case sleepingNotConfirmed:
@@ -286,6 +329,8 @@ void* _pms7003_event_loop(void *arg){
 
         case MSG_TYPE_PMS_RECEIVED_PASSIVE_CONFIRM:
             DEBUG("[pms7003] Received passive confirm from sensor\n");
+            _pms7003_stopNoResponseFromSensorWatchdog();
+
             switch (currentState)
             {
             case passiveNotConfirmed:
@@ -306,9 +351,11 @@ void* _pms7003_event_loop(void *arg){
 
         case MSG_TYPE_PMS_RECEIVED_ACTIVE_CONFIRM:
             DEBUG("[pms7003] Received active confirm from sensor\n");
+            _pms7003_stopNoResponseFromSensorWatchdog();
             break;
 
         case MSG_TYPE_PMS_RECIEVED_ERROR:
+            _pms7003_stopNoResponseFromSensorWatchdog();
             currentState = _pms7003_handle_error("Received error from rx handler");
             break;
 
@@ -325,9 +372,10 @@ void* _pms7003_event_loop(void *arg){
                     msg_t msgRead;
                     msgRead.type = MSG_TYPE_READ_SENSOR_DATA;
                     if(!msg_try_send(&msgRead, pms7003_pid)){
-                        DEBUG("[pms7003] WARNING : Could send read sensor data to self");
+                        DEBUG("[pms7003] FATAL ERROR : Could send read sensor data to self");
+                        return NULL;
                     }
-                    DEBUG("[pms7003] An user waiting, asked read");
+                    DEBUG("[pms7003] An user waiting, asked read\n");
                 }
                 currentState=readReady;
                 break;
@@ -344,6 +392,7 @@ void* _pms7003_event_loop(void *arg){
             {       
             case readReady:
                 uart_write(USED_UART, sleepFrame, 7);
+                _pms7003_setNoResponseFromSensorWatchdog();
                 currentState=sleepingNotConfirmed;
                 break;
 
@@ -372,11 +421,16 @@ void* _pms7003_event_loop(void *arg){
             }
             break;
 
+        case MSG_TYPE_TIMER_PMS_NOT_RESPONDING:
+            currentState = _pms7003_handle_error("sensor not responding");
+            break;
+
         case MSG_TYPE_READ_SENSOR_DATA:
             DEBUG("[pms7003] Received read event\n");
             switch (currentState){
                 case readReady:
                     uart_write(USED_UART, readFrame, 7);
+                    _pms7003_setNoResponseFromSensorWatchdog();
                     currentState = readAsked;
                     break;
                 default:
@@ -409,6 +463,7 @@ void* _pms7003_event_loop(void *arg){
             //in in sleeping mode, waking up and change state
             if(currentState == sleeping){
                 uart_write(USED_UART, wakeupFrame, 7);
+                _pms7003_setNoResponseFromSensorWatchdog();
                 currentState = exitingSleep;
             }
             
@@ -417,7 +472,7 @@ void* _pms7003_event_loop(void *arg){
             DEBUG("[pms7003] UNKNOWN event, ignoring...\n");
             break;
         }
-        DEBUG("---Now in state : %i\n", currentState);
+        DEBUG("[pms7003]Now in state : %i\n\n", currentState);
     }
 }
 
@@ -472,7 +527,7 @@ void pms7003_print(struct pms7003Data *data){
 }
 
 void pms7003_print_csv(struct pms7003Data *data){
-    printf("%li,%i;%i;%i;%i;%i;%i;%i;%i;%i;%i;%i;%i<><>\n",
+    printf("%li;%i;%i;%i;%i;%i;%i;%i;%i;%i;%i;%i;%i<><>\n",
     ztimer_now(ZTIMER_MSEC),
     data->pm1_0Standard,
     data->pm2_5Standard,

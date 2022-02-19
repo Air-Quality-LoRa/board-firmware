@@ -108,7 +108,7 @@ static int _pms_handler(int argc, char **argv){
                         return 1;
                     }
                     pms7003_print_csv(&data);
-                    ztimer_sleep (ZTIMER_MSEC, 10000);
+                    //ztimer_sleep (ZTIMER_MSEC, 10000);
                 }
             } else {
                 printf("Usage : pms print [csv]\n");
