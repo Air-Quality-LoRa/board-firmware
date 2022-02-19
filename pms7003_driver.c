@@ -27,6 +27,9 @@ static const uint8_t passiveModeFrame[] =   {0x42, 0x4d, 0xe1, 0x00, 0x00, 0x01,
 static const uint8_t sleepFrame[] =         {0x42, 0x4d, 0xe4, 0x00, 0x00, 0x01, 0x73};
 static const uint8_t wakeupFrame[] =        {0x42, 0x4d, 0xe4, 0x00, 0x01, 0x01, 0x74};
 
+static uint8_t framePointer = 0;
+
+
 #define MAX_USER_READ_QUEUE_SIZE 10
 static uint8_t pidDataRead = 0;
 static uint8_t pidDataWrite = 0;
@@ -129,7 +132,6 @@ uint8_t _decode_service_frame(enum serviceFrameType *frameType, uint8_t* frame){
 static void _pms7003_rx_handler(void *arg, uint8_t data){
     (void) arg;
     static uint8_t currentFrame[RX_FRAME_SIZE] = {};
-    static uint8_t framePointer = 0;
 
     currentFrame[framePointer++] = data;
     if(framePointer == 8){
@@ -170,6 +172,7 @@ static void _pms7003_rx_handler(void *arg, uint8_t data){
 static inline enum state _pms7003_handle_error(char* debugMessage){
     DEBUG("[pms7003] FAIL : %s\n[pms7003] Reinitialization ...", debugMessage);
     uart_write(USED_UART, wakeupFrame, 7);
+    framePointer = 0;
     return initialization;
 }
 
