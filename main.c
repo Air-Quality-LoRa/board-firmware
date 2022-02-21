@@ -18,6 +18,8 @@
 
 #include "pms7003_driver.h"
 
+#include <random.h>
+
 
 #if IS_USED(MODULE_SX127X)
 #include "sx127x.h"
@@ -39,6 +41,9 @@ bmx280_t bme_dev;
 static msg_t _recv_queue[RECV_MSG_QUEUE];
  
 static char _recv_stack[THREAD_STACKSIZE_DEFAULT];
+static char _recv_stack1[THREAD_STACKSIZE_DEFAULT];
+static char _recv_stack2[THREAD_STACKSIZE_DEFAULT];
+static char _recv_stack3[THREAD_STACKSIZE_DEFAULT];
 
 #if IS_USED(MODULE_SX127X)
 static sx127x_t sx127x;
@@ -77,6 +82,19 @@ static int _startrec_handler(int argc, char **argv) {
     return 0;
 }
 
+void* _pms7003_print_client_loop(void *arg){
+    (void)arg;
+
+    while(1){
+        struct pms7003Data data;
+        if(pms7003_measure(&data)==1){
+            return NULL;
+        }
+        ztimer_sleep(ZTIMER_MSEC, random_uint32_range (0, 2000));
+    }
+    return NULL;
+}
+
 static int _pms_handler(int argc, char **argv){
     (void)argc;
     (void)argv;
@@ -101,15 +119,33 @@ static int _pms_handler(int argc, char **argv){
         }
     } else if (!strcmp(argv[1],"print")){
         if(argc > 2){
-            if(!strcmp(argv[2],"csv")){
-                while(1){
-                    struct pms7003Data data;
-                    if(pms7003_measure(&data)==1){
-                        return 1;
-                    }
-                    pms7003_print_csv(&data);
-                    //ztimer_sleep (ZTIMER_MSEC, 10000);
-                }
+            if(!strcmp(argv[2],"1")){
+                
+                random_init (159);
+
+                kernel_pid_t client1 = thread_create(_recv_stack1,
+                                        sizeof(_recv_stack1),
+                                        THREAD_PRIORITY_MAIN - 2,
+                                        THREAD_CREATE_STACKTEST,
+                                        _pms7003_print_client_loop, NULL,
+                                        "thread 1");
+                
+                kernel_pid_t client2 = thread_create(_recv_stack2,
+                                        sizeof(_recv_stack2),
+                                        THREAD_PRIORITY_MAIN - 2,
+                                        THREAD_CREATE_STACKTEST,
+                                        _pms7003_print_client_loop, NULL,
+                                        "thread 2");
+                
+                kernel_pid_t client3 = thread_create(_recv_stack3,
+                                        sizeof(_recv_stack3),
+                                        THREAD_PRIORITY_MAIN - 2,
+                                        THREAD_CREATE_STACKTEST,
+                                        _pms7003_print_client_loop, NULL,
+                                        "thread 3");
+
+                printf("Client were started with pids : %i, %i and %i\n", client1, client2, client3);
+            
             } else {
                 printf("Usage : pms print [csv]\n");
                 return 1;

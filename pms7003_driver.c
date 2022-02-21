@@ -53,6 +53,23 @@ uint8_t queue_empty_pid(void) {
     return pidDataRead==pidDataWrite;
 }
 
+void queue_print(void){
+    printf("[pms7003] Printing queue\n\t[%2i", pidData[0]);
+    for(uint8_t i = 1; i<MAX_USER_READ_QUEUE_SIZE; i++){
+        printf(",%2i", pidData[i]);
+    }
+    printf("]\n\t");
+    for(uint8_t i = 0; i<MAX_USER_READ_QUEUE_SIZE; i++){
+        if(i==pidDataRead){
+            printf("  ^");
+        } else if (i==pidDataWrite){
+            printf("  *");
+        } else {
+            printf("   ");
+        }
+    }
+    printf("\n");
+}
 
 //-------- timers -------
 #define VALID_DATA_AFTER_WAKEUP_SEC 5
@@ -61,10 +78,6 @@ uint8_t queue_empty_pid(void) {
 
 #define TIME_BEFORE_NO_RESPONSE_WATCHDOG_FIRES_MSEC 5000
 static ztimer_t timerNoResponseFromSensor = {0};
-
-//-------- messages --------
-msg_t msgNoResponseFromSensor;
-
 
 //-------- frames handling ------------
 static uint8_t framePointer = 0;
@@ -184,6 +197,7 @@ static void _pms7003_rx_handler(void *arg, uint8_t data){
 //------- pms thread--------
 
 inline static void _pms7003_setNoResponseFromSensorWatchdog(void){
+    msg_t msgNoResponseFromSensor;
     msgNoResponseFromSensor.type = MSG_TYPE_TIMER_PMS_NOT_RESPONDING;
 
     if(ztimer_remove(ZTIMER_MSEC, &timerNoResponseFromSensor)){
@@ -440,9 +454,9 @@ void* _pms7003_event_loop(void *arg){
             break;
         
         case MSG_TYPE_USER_READ_SENSOR_DATA:
-            DEBUG("[pms7003] Received read event from user\n");
+            DEBUG("[pms7003] Received read event from user (pid %i)\n", msg.sender_pid);
             
-            //Saving the user pid to rely them later
+            //Saving the user pid to reply to them later
             if(queue_push_pid(msg.sender_pid)){
                 DEBUG("[pms7003] user read event could not be added, queue full!\n");
                 msg_t msgSend;
@@ -452,6 +466,8 @@ void* _pms7003_event_loop(void *arg){
             } else {
                 DEBUG("[pms7003] user read event added to queue\n");
             }
+                queue_print();
+
 
             //if in read mode, fire a read event
             if(currentState == readReady){
@@ -550,10 +566,11 @@ uint8_t pms7003_measure(struct pms7003Data *data){
     if(pms7003_pid==0){
         return 1;
     }
-    msg_send(&msgSend, pms7003_pid);
-
+    DEBUG("[pms7003] USER : pid %i asked mesure\n", thread_getpid());
     msg_t msgRecieve;
+    msg_send(&msgSend, pms7003_pid);
     msg_receive(&msgRecieve);
+    DEBUG("[pms7003] USER : pid %i received response\n", thread_getpid());
 
     memcpy(data, msgRecieve.content.ptr, sizeof(struct pms7003Data));
     return 0;
