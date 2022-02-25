@@ -90,7 +90,8 @@ void* _pms7003_print_client_loop(void *arg){
         if(pms7003_measure(&data)==1){
             return NULL;
         }
-        ztimer_sleep(ZTIMER_MSEC, random_uint32_range (0, 2000));
+        pms7003_print_csv(&data);
+        ztimer_sleep(ZTIMER_MSEC, random_uint32_range (1000, 30000));
     }
     return NULL;
 }
@@ -119,7 +120,7 @@ static int _pms_handler(int argc, char **argv){
         }
     } else if (!strcmp(argv[1],"print")){
         if(argc > 2){
-            if(!strcmp(argv[2],"1")){
+            if(!strcmp(argv[2],"csv")){
                 
                 random_init (159);
 

@@ -201,14 +201,15 @@ inline static void _pms7003_setNoResponseFromSensorWatchdog(void){
     msgNoResponseFromSensor.type = MSG_TYPE_TIMER_PMS_NOT_RESPONDING;
 
     if(ztimer_remove(ZTIMER_MSEC, &timerNoResponseFromSensor)){
-        DEBUG("[pms7008] No response form sensor watchdog is reset\n");
+        DEBUG("[pms7008] 'No response form sensor' watchdog is reset\n");
     }
 
     ztimer_set_msg(ZTIMER_MSEC, &timerNoResponseFromSensor, TIME_BEFORE_NO_RESPONSE_WATCHDOG_FIRES_MSEC, &msgNoResponseFromSensor, pms7003_pid);
-    DEBUG("[pms7003] No response from sensor watchdog is set\n");  
+    DEBUG("[pms7003] 'No response from sensor' watchdog is set\n");  
 }
 
 inline static void _pms7003_stopNoResponseFromSensorWatchdog(void){
+    DEBUG("[pms7003] 'No response from sensor' watchdog was removed\n");  
     ztimer_remove(ZTIMER_MSEC, &timerNoResponseFromSensor);
 }
 
@@ -447,8 +448,15 @@ void* _pms7003_event_loop(void *arg){
                     _pms7003_setNoResponseFromSensorWatchdog();
                     currentState = readAsked;
                     break;
+                case readAsked:
+                case cooldownAfterRead: 
+                    DEBUG("[pms7003] Already reading data, event ignored\n");
+                    break;
+                case passive:
+                    DEBUG("[pms7003] Unexpected read, ignoring (it will be rescheduled when sensor is ready)\n");
+                    break;
                 default:
-                    currentState = _pms7003_handle_error("Read sensor event but not ready");
+                    currentState = _pms7003_handle_error("Read sensor event but sensor not ready, this can sometimes happen...");
                     break;
             }
             break;
