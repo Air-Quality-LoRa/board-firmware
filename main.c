@@ -223,7 +223,6 @@ static int _temp_handler(int argc, char **argv) {
         printf("BMX280_ERR_NODEV\n");
     }
 
-
     double humidity = (double)bme280_read_humidity(&bme_dev);
     double temperature = (double)bmx280_read_temperature(&bme_dev);
 
@@ -243,6 +242,72 @@ static int _temp_handler(int argc, char **argv) {
     return 0;
 }
 
+static int _sensor_csv_handler(int argc, char **argv) {
+    if(argc != 2){
+        printf("USAGE : sensorscsv mesureIntervalSeconds\n");
+        return 1;
+    }
+
+    uint64_t time_between_mesures = atoi(argv[1])*1000;
+    
+    //INIT
+    int ret = bmx280_init(&bme_dev, &bmx280_params[0]);
+    if(ret == BMX280_OK){
+        printf("BMX280_OK\n");
+    }
+    if(ret == BMX280_ERR_BUS){
+        printf("BMX280_ERR_BUS\n");
+        return 1;
+    }
+    if(ret == BMX280_ERR_NODEV){
+        printf("BMX280_ERR_NODEV\n");
+        return 1;
+    }
+    pms7003_init(0);
+
+
+    printf("\
+local_time_msec;\
+pm1_0standard;pm2_5standard;pm10standard;\
+pm1_0atmospheric;pm2_5atmospheric;pm10atmospheric;\
+nb_particles_gt_0_3;nb_particles_gt_0_5;nb_particles_gt_1_0;nb_particles_gt_2_5;nb_particles_gt_5_0;nb_particles_gt_10;\
+humidity;temperature;pressure<><>\n");
+    while (1)
+    {   
+        struct pms7003Data data;
+        
+        if(pms7003_measure(&data)==1){
+            return 1;
+        }
+
+        uint16_t humidity = bme280_read_humidity(&bme_dev);
+        uint16_t temperature = bmx280_read_temperature(&bme_dev);
+        uint32_t pressure = bmx280_read_pressure(&bme_dev);
+
+        printf("%li;%i;%i;%i;%i;%i;%i;%i;%i;%i;%i;%i;%i;%i;%i;%li;<><>\n",
+        ztimer_now(ZTIMER_MSEC),
+        data.pm1_0Standard,
+        data.pm2_5Standard,
+        data.pm10Standard,
+        data.pm1_0Atmospheric,
+        data.pm2_5Atmospheric,
+        data.pm10Atmospheric,
+        data.particuleGT0_3,
+        data.particuleGT0_5,
+        data.particuleGT1_0,
+        data.particuleGT2_5,
+        data.particuleGT5_0,
+        data.particuleGT10,
+        humidity,
+        temperature,
+        pressure);
+
+        ztimer_sleep(ZTIMER_MSEC, time_between_mesures);
+    }
+    
+
+}
+
 static const shell_command_t shell_commands[] = {
     { "init", "init loramac", _init_handler },
     { "keys", "init keys", _keys_handler },
@@ -251,6 +316,7 @@ static const shell_command_t shell_commands[] = {
     { "i2c", "try i2c read", _temp_handler },
     { "pms", "play with pms7003 sensor", _pms_handler },
     { "startrec", "start rec thread", _startrec_handler},
+    { "sensorscsv", "print all the mesurements of the sensors as csv", _sensor_csv_handler},
     { NULL, NULL, NULL }
 };
 

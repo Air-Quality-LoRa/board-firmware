@@ -21,7 +21,7 @@ static struct pms7003Data lastMesure;
 static enum state currentState = uninitialized;
 static uint8_t useTheSleepMode = 0;
 
-
+static msg_t msgNoResponseFromSensor = {0};
 
 
 // ------------ user response fifo--------
@@ -72,7 +72,7 @@ void queue_print(void){
 }
 
 //-------- timers -------
-#define VALID_DATA_AFTER_WAKEUP_SEC 5
+#define VALID_DATA_AFTER_WAKEUP_SEC 30
 #define TIME_BEFORE_GOING_BACK_TO_SLEEP_SEC 5
 #define TIME_BETWEEN_TWO_MEASURES_MSEC 100
 
@@ -197,20 +197,22 @@ static void _pms7003_rx_handler(void *arg, uint8_t data){
 //------- pms thread--------
 
 inline static void _pms7003_setNoResponseFromSensorWatchdog(void){
-    msg_t msgNoResponseFromSensor;
     msgNoResponseFromSensor.type = MSG_TYPE_TIMER_PMS_NOT_RESPONDING;
 
     if(ztimer_remove(ZTIMER_MSEC, &timerNoResponseFromSensor)){
-        DEBUG("[pms7008] 'No response form sensor' watchdog is reset\n");
+        DEBUG("[pms7008] Sensor response watchdog removed\n");
     }
 
     ztimer_set_msg(ZTIMER_MSEC, &timerNoResponseFromSensor, TIME_BEFORE_NO_RESPONSE_WATCHDOG_FIRES_MSEC, &msgNoResponseFromSensor, pms7003_pid);
-    DEBUG("[pms7003] 'No response from sensor' watchdog is set\n");  
+    DEBUG("[pms7003] Sensor response watchdog set\n");  
 }
 
 inline static void _pms7003_stopNoResponseFromSensorWatchdog(void){
-    DEBUG("[pms7003] 'No response from sensor' watchdog was removed\n");  
-    ztimer_remove(ZTIMER_MSEC, &timerNoResponseFromSensor);
+    if(ztimer_remove(ZTIMER_MSEC, &timerNoResponseFromSensor)){
+        DEBUG("[pms7008] Sensor response watchdog removed\n");
+    } else {
+        DEBUG("[pms7008] WARNING : Sensor response watchdog already fired!\n");
+    }
 }
 
 static inline enum state _pms7003_handle_error(char* debugMessage){
@@ -353,7 +355,7 @@ void* _pms7003_event_loop(void *arg){
                 msgSend.type = MSG_TYPE_TIMER_VALID_DATA;
                 ztimer_t timer = {0};
                 ztimer_set_msg(ZTIMER_MSEC, &timer, VALID_DATA_AFTER_WAKEUP_SEC*1000, &msgSend, pms7003_pid);
-                DEBUG("[pms7003] now in passive mode, it will be ready in x seconds\n");
+                DEBUG("[pms7003] now in passive mode, it will be ready in %i seconds\n", VALID_DATA_AFTER_WAKEUP_SEC);
                 currentState = passive;
                 break;
             
