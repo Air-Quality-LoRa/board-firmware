@@ -323,7 +323,7 @@ void* _pms7003_event_loop(void *arg){
                 currentState=cooldownAfterRead;
                 break;
             default:
-                _pms7003_handle_error("Unexpected data read from sensor");
+                currentState = _pms7003_handle_error("Unexpected data read from sensor");
                 break;
             }
             break;
