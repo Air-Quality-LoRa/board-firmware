@@ -4,14 +4,18 @@
 #include <periph/flashpage.h>
 #include <semtech_loramac.h>
 #include "configuration.h"
+#include "error.h"
 
 uint8_t deveui[LORAMAC_DEVEUI_LEN];
 uint8_t appeui[LORAMAC_APPEUI_LEN];
 uint8_t appkey[LORAMAC_APPKEY_LEN];
+uint8_t pmsUseAtmoshphericMesure; //true is atmoshperic, false standard
+uint8_t pmsUsePowersaveMode;
 
-enum sendInterval uplinkInterval;
-enum dataToSend dataToSend;
-enum eccFrameFrequency eccFrameFrequency;
+uint8_t _sendIntervalMinutes[6];
+uint8_t _eccSendInterval[6];
+enum dataToSend _dataToSend[6];
+
 
 static uint8_t flashPage[2048] __attribute__ ((aligned (FLASHPAGE_WRITE_BLOCK_ALIGNMENT))) = {0};
 
@@ -35,7 +39,6 @@ static inline uint8_t convertSymbolToHalfByte(char symbol){
 
 static void askHexString(uint8_t* dataPtr, uint8_t len)
 {
-    fflush(stdin);
     uint8_t state = 0;
     for(uint8_t bytePtr = 0;bytePtr<len;){
         int c = getchar();
@@ -70,16 +73,26 @@ void loadConfig(void){
     memcpy(deveui,flashPage,                                        LORAMAC_DEVEUI_LEN);
     memcpy(appeui,flashPage+LORAMAC_DEVEUI_LEN,                     LORAMAC_APPEUI_LEN);
     memcpy(appkey,flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN,  LORAMAC_APPKEY_LEN);
+
+    pmsUsePowersaveMode = *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+1);
+    pmsUseAtmoshphericMesure = *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+2);
 }
 
 void printConfig(void){
     printf("Current loaded configuration is:");
+    //lora
     printf("\ndeveui : ");
     printHexArray(deveui, LORAMAC_DEVEUI_LEN);
     printf("\nappeui : ");
     printHexArray(appeui, LORAMAC_APPEUI_LEN);
     printf("\nappkey : ");
     printHexArray(appkey, LORAMAC_APPKEY_LEN);
+    
+    //pms
+    printf("\npms powersaving mode : ");
+    pmsUsePowersaveMode?printf("yes"):printf("no");
+    printf("\npms concentration mesure : ");
+    pmsUseAtmoshphericMesure?printf("atmospheric"):printf("standard");
 
     printf("\n");
 }
@@ -96,11 +109,101 @@ void interactiveConfig(void){
 
     printf("\nappkey : \n");
     askHexString(appkey, LORAMAC_APPKEY_LEN);
+
+    printf("\n\nPMS configuraiton:\n");
+    int c;
+    printf("Use atmospheric mesure (a) or standard mesure (s) : \n");
+    do{
+        c = getchar();
+    }while(c!='a' && c!='s');
+    putchar(c);
+    fflush(stdout);
+    pmsUseAtmoshphericMesure = (c=='a');
+
+    printf("Use powersave mode? (This mode stops the fan of the pms between mesures to preserve battery and reduce the fan dirtying.)\nyes (y) or no (n) : \n");
+    do{
+        c = getchar();
+    }while(c!='y' && c!='n');
+    putchar(c);
+    fflush(stdout);
+    pmsUsePowersaveMode = (c=='y');
 }
 
 void saveConfig(void){
     memcpy(flashPage,                                       deveui, LORAMAC_DEVEUI_LEN);
     memcpy(flashPage+LORAMAC_DEVEUI_LEN,                    appeui, LORAMAC_APPEUI_LEN);
     memcpy(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN, appkey, LORAMAC_APPKEY_LEN);
+
+    *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN+1) = pmsUsePowersaveMode;
+    *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN+2) = pmsUseAtmoshphericMesure;
+
     flashpage_write_page(127, flashPage);
+}
+
+void setDynamicConfig(uint8_t rawData[]){
+    DEBUG("[configuration] updated dynamic configuration");
+    for (uint8_t i = 0; i < 6; i++)
+    {
+        _dataToSend[i] = (rawData[i]&0x18)>>3;
+        enum sendInterval _sendInterval = (rawData[i]&0xE0)>>5;
+        enum eccFrameFrequency _eccFrameFrequency = rawData[i]&0x7;
+
+        switch (_sendInterval){
+            case every_5_minutes:
+                _sendIntervalMinutes[i]=5;
+                break;
+            case every_10_minutes:
+                _sendIntervalMinutes[i]=10;
+                break;
+            case every_15_minutes:
+                _sendIntervalMinutes[i]=15;
+                break;
+            case every_20_minutes:
+                _sendIntervalMinutes[i]=20;
+                break;
+            case every_30_minutes:
+                _sendIntervalMinutes[i]=30;
+                break;
+            case every_45_minutes:
+                _sendIntervalMinutes[i]=45;
+                break;
+            case every_60_minutes:
+                _sendIntervalMinutes[i]=60;
+                break;
+            case every_120_minutes:
+                _sendIntervalMinutes[i]=120;
+                break;
+            default:
+                handleError("The send interval received is invalid");
+                break;
+        }
+
+        if(_eccFrameFrequency == never){
+            _eccSendInterval[i] = 0;
+        } else {
+            //perform sqrt
+            _eccSendInterval[i] = 1;
+            for (uint8_t i = 0; i < _eccFrameFrequency; i++){
+                _eccSendInterval[i]*=2; 
+            }
+        }
+        DEBUG("[configuration] config for datarate%i is sendIntervalMinutes=%i, dataToSend=%i, eccSendInterval=%i", i,_sendIntervalMinutes, dataToSend, _eccSendInterval);
+    }
+}
+
+void getDynamicConfiguration(uint8_t datarate, uint8_t *sendIntervalMinutes, uint8_t eccSendInterval, enum dataToSend* dataToSend){
+    //datarate 6 have the same config than 5. check to prevent going out array bounds
+    if (datarate>5){
+        datarate=5;
+    }
+
+    if(sendIntervalMinutes != NULL){
+        *sendIntervalMinutes = _sendIntervalMinutes[datarate];
+    }
+    if(eccSendInterval != NULL){
+        *eccSendInterval = _eccSendInterval[datarate];
+    }
+    if(_dataToSend != NULL){
+        *dataToSend = _dataToSend[datarate];
+    }
 }
