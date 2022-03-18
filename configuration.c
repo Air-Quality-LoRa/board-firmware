@@ -1,3 +1,6 @@
+#define ENABLE_DEBUG  (1)
+#include <debug.h>
+
 #include <stdio.h>
 #include <string.h>
 #include <board.h>
@@ -5,6 +8,7 @@
 #include <semtech_loramac.h>
 #include "configuration.h"
 #include "error.h"
+#include "util.h"
 
 uint8_t deveui[LORAMAC_DEVEUI_LEN];
 uint8_t appeui[LORAMAC_APPEUI_LEN];
@@ -18,12 +22,6 @@ enum dataToSend _dataToSend[6];
 
 
 static uint8_t flashPage[2048] __attribute__ ((aligned (FLASHPAGE_WRITE_BLOCK_ALIGNMENT))) = {0};
-
-static void printHexArray(const uint8_t* data, uint8_t length){
-    for(uint8_t dataPtr = 0; dataPtr<length; dataPtr++ ){
-        printf("%02X ", data[dataPtr]);
-    }
-}
 
 static inline uint8_t convertSymbolToHalfByte(char symbol){
     uint8_t ret = 0;
@@ -74,8 +72,16 @@ void loadConfig(void){
     memcpy(appeui,flashPage+LORAMAC_DEVEUI_LEN,                     LORAMAC_APPEUI_LEN);
     memcpy(appkey,flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN,  LORAMAC_APPKEY_LEN);
 
-    pmsUsePowersaveMode = *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+1);
-    pmsUseAtmoshphericMesure = *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+2);
+    pmsUsePowersaveMode = *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN);
+    pmsUseAtmoshphericMesure = *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN+1);
+
+    DEBUG("The flashpage read is :");
+    #if ENABLE_DEBUG
+    printHexArray(flashPage, LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN+2);
+    #endif
+    DEBUG("\n");
+
+
 }
 
 void printConfig(void){
@@ -120,13 +126,16 @@ void interactiveConfig(void){
     fflush(stdout);
     pmsUseAtmoshphericMesure = (c=='a');
 
-    printf("Use powersave mode? (This mode stops the fan of the pms between mesures to preserve battery and reduce the fan dirtying.)\nyes (y) or no (n) : \n");
+    printf("\nUse powersave mode? (This mode stops the fan of the pms between mesures to preserve battery and reduce the fan dirtying.)\nyes (y) or no (n) : \n");
     do{
         c = getchar();
     }while(c!='y' && c!='n');
     putchar(c);
+    putchar('\n');
+
     fflush(stdout);
     pmsUsePowersaveMode = (c=='y');
+
 }
 
 void saveConfig(void){
@@ -134,14 +143,22 @@ void saveConfig(void){
     memcpy(flashPage+LORAMAC_DEVEUI_LEN,                    appeui, LORAMAC_APPEUI_LEN);
     memcpy(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN, appkey, LORAMAC_APPKEY_LEN);
 
-    *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN+1) = pmsUsePowersaveMode;
-    *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN+2) = pmsUseAtmoshphericMesure;
+    *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN) = pmsUsePowersaveMode;
+    *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN+1) = pmsUseAtmoshphericMesure;
+
+    DEBUG("[configuration] updated static configuration\n");
 
     flashpage_write_page(127, flashPage);
+
+    DEBUG("The flashpage written is :");
+    #if ENABLE_DEBUG
+    printHexArray(flashPage, LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN+2);
+    #endif
+    DEBUG("\n");
 }
 
 void setDynamicConfig(uint8_t rawData[]){
-    DEBUG("[configuration] updated dynamic configuration");
+    DEBUG("[configuration] updated dynamic configuration\n");
     for (uint8_t i = 0; i < 6; i++)
     {
         _dataToSend[i] = (rawData[i]&0x18)>>3;
@@ -182,16 +199,16 @@ void setDynamicConfig(uint8_t rawData[]){
             _eccSendInterval[i] = 0;
         } else {
             //perform sqrt
-            _eccSendInterval[i] = 1;
-            for (uint8_t i = 0; i < _eccFrameFrequency; i++){
+            _eccSendInterval[i] = 2;
+            for (uint8_t j = 1; j < _eccFrameFrequency; j++){
                 _eccSendInterval[i]*=2; 
             }
         }
-        DEBUG("[configuration] config for datarate%i is sendIntervalMinutes=%i, dataToSend=%i, eccSendInterval=%i", i,_sendIntervalMinutes, dataToSend, _eccSendInterval);
+        DEBUG("[configuration] config for datarate%d is sendIntervalMinutes=%d, eccSendInterval=%i\n", i,_sendIntervalMinutes[i], _eccSendInterval[i]);
     }
 }
 
-void getDynamicConfiguration(uint8_t datarate, uint8_t *sendIntervalMinutes, uint8_t eccSendInterval, enum dataToSend* dataToSend){
+void getDynamicConfiguration(uint8_t datarate, uint8_t *sendIntervalMinutes, uint8_t *eccSendInterval, enum dataToSend* dataToSend){
     //datarate 6 have the same config than 5. check to prevent going out array bounds
     if (datarate>5){
         datarate=5;

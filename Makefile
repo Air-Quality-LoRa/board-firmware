@@ -11,6 +11,9 @@ USEMODULE += fmt periph_i2c
 USEMODULE += semtech_loramac_rx
 USEMODULE += bme280_i2c
 
+USEMODULE += periph_wdt
+
+
 USEMODULE += periph_flashpage periph_flashpage_pagewise
 # https://doc.riot-os.org/group__sys__ztimer.html
 USEMODULE += ztimer

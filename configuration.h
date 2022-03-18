@@ -8,11 +8,6 @@ extern uint8_t appkey[LORAMAC_APPKEY_LEN];
 extern uint8_t pmsUseAtmoshphericMesure;
 extern uint8_t pmsUsePowersaveMode;
 
-//dynamic configuration
-uint8_t _sendIntervalMinutes[6];
-uint8_t _eccSendInterval[6];
-enum dataToSend _dataToSend[6];
-
 
 enum sendInterval{
     every_5_minutes = 0x7,
@@ -73,4 +68,4 @@ void setDynamicConfig(uint8_t rawData[]);
  * Get the configuration to use now (i.e. taking the datarate in account)
  * parameters 2-4 can be set to NULL if their value doesn't interrest you
  */
-void getDynamicConfiguration(uint8_t currentDatarate, uint8_t *sendIntervalMinutes, uint8_t eccSendInterval, enum dataToSend* _dataToSend);
+void getDynamicConfiguration(uint8_t currentDatarate, uint8_t *sendIntervalMinutes, uint8_t *eccSendInterval, enum dataToSend* _dataToSend);

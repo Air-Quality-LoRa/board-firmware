@@ -14,7 +14,7 @@ void loraJoin(void);
 /**
  * Continuously probe the server for a configuration util it is given...
  */
-void loraSendConfigurationConfirmed(void);
+void loraGetConfiguration(void);
 
 /**
  * Give the datarate between 6 and 0 
@@ -23,5 +23,7 @@ uint8_t loraGetDatarate(void);
 
 /**
  * Send a frame, automatically select the right port
+ * @param data the data to send
+ * @param type 0 for normal packet, 1 for ecc packet
  */
-void loraSendData(uint8_t data[], uint8_t len);
+void loraSendData(uint8_t data[], uint8_t type);

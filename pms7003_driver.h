@@ -71,8 +71,9 @@ void pms7003_print_csv(struct pms7003Data *data);
 /**
  * Init the uart 1 (or rx2,tx2 on the card)
  * @param useSleepMode set to true if you want to set the sensor sleep when not in use
+ * @return 0 if pms was initialized, 1 otherwise
  */
-void pms7003_init(uint8_t useSleepMode);
+uint8_t pms7003_init(uint8_t useSleepMode);
 
 /**
  * Get the last valid mesure. 

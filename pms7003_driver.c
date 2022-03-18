@@ -5,8 +5,9 @@
 #include "pms7003_driver.h"
 #include "thread.h"
 #include "ztimer.h"
+#include "messages.h"
 
-#define ENABLE_DEBUG 1
+#define ENABLE_DEBUG 0
 #include "debug.h"
 
 #define USED_UART UART_DEV(1)
@@ -225,7 +226,9 @@ static inline enum state _pms7003_handle_error(char* debugMessage){
 }
 
 void* _pms7003_event_loop(void *arg){
-    (void) arg;
+    kernel_pid_t initedFromPid = *(kernel_pid_t*)arg;
+
+    uint8_t firstIgnition = 1;
 
     static ztimer_t backIntoSleepModeTimer = {0};
 
@@ -267,6 +270,12 @@ void* _pms7003_event_loop(void *arg){
             switch (currentState)
             {
             case initialization:
+                if(firstIgnition){
+                    msg_t msgInited;
+                    msgInited.type = MSG_TYPE_PMS_IGNITED; //TODO change this, the message will be sent every time pms resets, it shouldn't...
+                    msg_send(&msgInited, initedFromPid);
+                    firstIgnition = 0;
+                }
                 if(useTheSleepMode && queue_empty_pid()){
                     uart_write(USED_UART, sleepFrame, 7);
                     _pms7003_setNoResponseFromSensorWatchdog();
@@ -504,20 +513,29 @@ void* _pms7003_event_loop(void *arg){
 
 //---------USER METHODS--------
 
-void pms7003_init(uint8_t useSleepMode){    
+uint8_t pms7003_init(uint8_t useSleepMode){    
     uart_init(USED_UART,9600, _pms7003_rx_handler, NULL);
 
+    kernel_pid_t pid = getpid();
     pms7003_pid = thread_create(pms7003_thread_stack,
                                         sizeof(pms7003_thread_stack),
                                         THREAD_PRIORITY_MAIN - 1,
                                         THREAD_CREATE_STACKTEST,
-                                        _pms7003_event_loop, NULL,
+                                        _pms7003_event_loop, &pid,
                                         "pms7003_thread");
 
     msg_t msg;
     msg.type = MSG_TYPE_INIT_SENSOR;
     msg.content.value = useSleepMode;
     msg_send(&msg, pms7003_pid);
+
+    msg_t msgRcv;
+    if(ztimer_msg_receive_timeout(ZTIMER_SEC, &msgRcv, 5)>0){
+        return 0;
+    } else {
+        return 1;
+    }
+
 }
 
 void pms7003_print(struct pms7003Data *data){
