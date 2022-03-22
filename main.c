@@ -14,6 +14,8 @@
 #include <sx126x_netdev.h>
 #include <sx126x_params.h>
 
+#include <random.h>
+
 #include <bmx280_params.h>
 #include <bmx280.h>
 
@@ -90,19 +92,21 @@ void configure(void){
 
     printf("Starting!\n");
 
-    if (pms7003_init(pmsUsePowersaveMode)){
-        printf("WARNING : PMS7003 is not reachable, check if it is correctly connected!\n");
-    }
-    if(bmx280_init(&bme_dev, &bmx280_params[0]) != BMX280_OK){
-        printf("WARNING : BME280 is not reachable, check if it is correctly connected!\n");
-    }
+    // if (pms7003_init(pmsUsePowersaveMode)){
+    //     printf("WARNING : PMS7003 is not reachable, check if it is correctly connected!\n");
+    // }
+    // if(bmx280_init(&bme_dev, &bmx280_params[0]) != BMX280_OK){
+    //     printf("WARNING : BME280 is not reachable, check if it is correctly connected!\n");
+    // }
 }
 
 uint8_t getTemperatureByte(int16_t temperature)
 {
-    if(temperature == INT16_MIN){
-        handleError("Could not read temperature.");
-    }
+    //TODO fake data + removed check
+    temperature = (uint16_t)random_uint32_range(0,8000);
+    // if(temperature == INT16_MIN){
+    //     handleError("Could not read temperature.");
+    // }
     if(temperature <= -2000){
         return 0;
     }
@@ -115,6 +119,8 @@ uint8_t getTemperatureByte(int16_t temperature)
 }
 
 uint8_t getHumidityByte(uint16_t humidity){
+    //TODO fake data
+    humidity = (uint16_t)random_uint32_range(0,10000);
     return humidity/100;
 }
 
@@ -164,11 +170,25 @@ int main(void)
     wakeUpMsgMesure.type = MSG_TYPE_MESURE;
     ztimer_set_msg(ZTIMER_SEC, &timerMesure, 30/*4*60*/, &wakeUpMsgMesure, getpid());
 
+    random_init(ztimer_now(ZTIMER_MSEC));
     while(1){
         msg_receive(&msgRcv);   
         if(msgRcv.type == MSG_TYPE_MESURE){
-
-            pms7003_measure(&pmsData);
+            //TODO fake data
+            //pms7003_measure(&pmsData);
+            pmsData.particuleGT0_3=(uint16_t)random_uint32_range(0,1000);
+            pmsData.particuleGT0_5=(uint16_t)random_uint32_range(0,8000);
+            pmsData.particuleGT1_0 =(uint16_t)random_uint32_range(0,500);
+            pmsData.particuleGT2_5=(uint16_t)random_uint32_range(0,100);
+            pmsData.particuleGT5_0=(uint16_t)random_uint32_range(0,50);
+            pmsData.particuleGT10=(uint16_t)random_uint32_range(0,10);
+            
+            pmsData.pm10Atmospheric=(uint16_t)random_uint32_range(0,10);
+            pmsData.pm10Standard=(uint16_t)random_uint32_range(0,10);
+            pmsData.pm2_5Atmospheric=(uint16_t)random_uint32_range(0,50);
+            pmsData.pm2_5Standard=(uint16_t)random_uint32_range(0,50);
+            pmsData.pm1_0Atmospheric=(uint16_t)random_uint32_range(0,50);
+            pmsData.pm1_0Standard=(uint16_t)random_uint32_range(0,50);
 
             #if ENABLE_DEBUG
             pms7003_print(&pmsData);
@@ -176,8 +196,10 @@ int main(void)
             #endif
 
             frame[0] = packetNumber++; //at 255 it will overflow and return to 0
-            frame[1] = getTemperatureByte(bmx280_read_temperature(&bme_dev));
-            frame[2] = getHumidityByte(bme280_read_humidity(&bme_dev)); //allways get humity after calling bmx280_read_temperature  
+            frame[1] = getTemperatureByte(0/*bmx280_read_temperature(&bme_dev)*/);
+            frame[2] = getHumidityByte(0/*bme280_read_humidity(&bme_dev)*/); //allways get humity after calling bmx280_read_temperature  
+
+            DEBUG("[main] began creating frame");
 
             switch (dataToSend)
             {
