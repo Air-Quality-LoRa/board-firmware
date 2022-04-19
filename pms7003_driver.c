@@ -485,8 +485,9 @@ void* _pms7003_event_loop(void *arg){
             } else {
                 DEBUG("[pms7003] user read event added to queue\n");
             }
-                queue_print();
-
+            #ifdef ENABLE_DEBUG
+            queue_print();
+            #endif
 
             //if in read mode, fire a read event
             if(currentState == readReady){

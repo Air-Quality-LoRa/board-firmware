@@ -14,7 +14,7 @@ void loraJoin(void);
 /**
  * Continuously probe the server for a configuration util it is given...
  */
-void loraGetConfiguration(void);
+void loraGetConfigurationFromNetwork(void);
 
 /**
  * Give the datarate between 6 and 0 

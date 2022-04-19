@@ -137,24 +137,27 @@ void loraJoin(void){
     thread_create(loraDownlinkThreadStack, sizeof(loraDownlinkThreadStack),
               THREAD_PRIORITY_MAIN - 1, 0, loraDownlinkThread, &pid, "recv thread");
             
-    DEBUG("[communication] Network joined!!----------------------------------\n");
+    DEBUG("[communication] Network joined!!\n");
     //TODO remove this? downgrading datarate to be sure the first messages will be sent.
     semtech_loramac_set_dr(&loramac, semtech_loramac_get_dr(&loramac)-1);
     semtech_loramac_set_adr(&loramac, true); //enable adaptative data rate (idk if the adr enable before join worked?)
 }
 
-void loraGetConfiguration(void){
+void loraGetConfigurationFromNetwork(void){
     configurationIsValid = 0;
 
     msg_t sendConfirmed = {0};
     int messageReceived = 0;
+
+    ztimer_sleep(ZTIMER_SEC, 10);
+
     do{
         semtech_loramac_set_tx_port(&loramac, 1);
         //setLoraWatchdog();
         semtech_loramac_send(&loramac, NULL, 0);
         //stopLoraWatchdog();
 
-        DEBUG("[communication] Asked the server for a configuration!!----------------------------------\n");
+        DEBUG("[communication] Asked the server for a configuration\n");
 
         messageReceived = ztimer_msg_receive_timeout(ZTIMER_SEC, &sendConfirmed, 20);
         if(messageReceived>=0 && sendConfirmed.type != MSG_TYPE_CONFIG_CHANGED){
@@ -162,7 +165,7 @@ void loraGetConfiguration(void){
         }
         ztimer_sleep(ZTIMER_SEC, 20); //TODO: optimise for low datarates, 60 seconds will exeed x on datarate < 2?
     }while(messageReceived<=0);
-    DEBUG("[communication] The configuration was received!!----------------------------------\n");
+    DEBUG("[communication] The configuration was received\n");
 
 }
 
@@ -193,9 +196,11 @@ void loraSendData(uint8_t data[], uint8_t type){
     DEBUG("\n");
     #endif
 
-    semtech_loramac_set_tx_port(&loramac, _dataToSend+1+(type?3:0)); //dataToSend + 1 gives the port on witch data have to be sent
+    uint8_t port = _dataToSend+1+(type?3:0);
+    semtech_loramac_set_tx_port(&loramac, port); //dataToSend + 1 gives the port on witch data have to be sent
+    DEBUG("[communication] The message will be sent on port : %d\n", port);
     
     //setLoraWatchdog();
-    semtech_loramac_send(&loramac, data, len);
+    // semtech_loramac_send(&loramac, data, len);
     //stopLoraWatchdog();
 }

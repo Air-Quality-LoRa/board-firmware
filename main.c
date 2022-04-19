@@ -96,7 +96,7 @@ void configure(void){
     if(bmx280_init(&bme_dev, &bmx280_params[0]) != BMX280_OK){
         printf("WARNING : BME280 is not reachable, check if it is correctly connected!\n");
     }
-    //TODO : stop main uart?
+    //TODO : stop main uart
 }
 
 uint8_t getTemperatureByte(int16_t temperature)
@@ -119,55 +119,59 @@ uint8_t getHumidityByte(uint16_t humidity){
     return humidity/100;
 }
 
-void clearFrameEcc(uint8_t *frameEcc){
+void clearPacketEcc(uint8_t *packetEcc){
     for (uint8_t i = 0; i < 21; i++){
-        frameEcc[i]= 0;
+        packetEcc[i]= 0;
     } 
 }
 
-void updateEccFrame(uint8_t *frameEcc, uint8_t *sentFrame){
+void updateEccFrame(uint8_t *packetEcc, uint8_t *sentFrame){
     for (uint8_t i = 0; i < 21; i++)
     {
-        frameEcc[i] ^=sentFrame[i];
+        packetEcc[i] ^=sentFrame[i];
     }
     
 }
 
 int main(void)
 { 
-    configure();
-
-    loraJoin();
-    ztimer_sleep(ZTIMER_SEC, 10);
-    loraGetConfiguration();
-
-    uint8_t packetNumber = 0;
-    uint8_t lastEccSent = 0;
-    msg_t wakeUpMsgMesure = {0};
+    // Messages and timers
+    msg_t wakeUpMsgMeasure = {0};
     msg_t wakeUpMsgEcc = {0};
     msg_t msgRcv = {0};
-    ztimer_t timerMesure = {0};
-    ztimer_t timerEcc = {0};
+    ztimer_t wakeUpTimerMeasure = {0};
+    ztimer_t wakeUpTimerEcc = {0};
+
+    // packet numbers and data
+    uint8_t packetNumber = 0;
+    uint8_t lastEccSent = 0;
+    uint8_t packet[21];
+    uint8_t packetEcc[21];
+    clearPacketEcc(packetEcc);
 
     struct pms7003Data pmsData;
 
-    uint8_t frame[21];
-    uint8_t frameEcc[21];
-    clearFrameEcc(frameEcc);
+    configure(); //interractive
+
+    loraJoin();
+    loraGetConfigurationFromNetwork();
 
     uint8_t currentDatarate = loraGetDatarate();
 
-    uint8_t sendIntervalMinutes, eccSendInterval;
+    uint8_t sendIntervalMinutes;
+    uint8_t eccSendInterval;
     enum dataToSend dataToSend;
     getDynamicConfiguration(currentDatarate, &sendIntervalMinutes, &eccSendInterval, &dataToSend);
 
-    //TODO : first mesure can be send 4 minutes after wihout problem
-    wakeUpMsgMesure.type = MSG_TYPE_MESURE;
-    ztimer_set_msg(ZTIMER_SEC, &timerMesure, 30/*4*60*/, &wakeUpMsgMesure, getpid());
+    //TODO : send first measure asap
+    wakeUpMsgMeasure.type = MSG_TYPE_MEASURE;
+    ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, 10/*4*60*/, &wakeUpMsgMeasure, getpid());
 
+    //main loop
     while(1){
-        msg_receive(&msgRcv);   
-        if(msgRcv.type == MSG_TYPE_MESURE){
+        msg_receive(&msgRcv);
+        
+        if(msgRcv.type == MSG_TYPE_MEASURE){
 
             pms7003_measure(&pmsData);
 
@@ -176,69 +180,80 @@ int main(void)
             printf("\n");
             #endif
 
-            frame[0] = packetNumber++; //at 255 it will overflow and return to 0
-            frame[1] = getTemperatureByte(bmx280_read_temperature(&bme_dev));
-            frame[2] = getHumidityByte(bme280_read_humidity(&bme_dev)); //allways get humity after calling bmx280_read_temperature  
+            packet[0] = packetNumber++; //at 255 it will overflow and return to 0
+            packet[1] = getTemperatureByte(bmx280_read_temperature(&bme_dev));
+            packet[2] = getHumidityByte(bme280_read_humidity(&bme_dev)); //allways get humity after calling bmx280_read_temperature  
 
             switch (dataToSend)
             {
             case pms_concentration:
-                memcpy(&frame[3], pmsUseAtmoshphericMesure?&pmsData.pm1_0Atmospheric:&pmsData.pm1_0Standard, 6);
+                memcpy(&packet[3], pmsUseAtmoshphericMesure?&pmsData.pm1_0Atmospheric:&pmsData.pm1_0Standard, 6);
                 break;
             case pms_particle_units:
-                memcpy(&frame[3], &pmsData.particuleGT0_3, 12);
+                memcpy(&packet[3], &pmsData.particuleGT0_3, 12);
                 break;
             case all:
-                memcpy(&frame[3], pmsUseAtmoshphericMesure?&pmsData.pm1_0Atmospheric:&pmsData.pm1_0Standard, 6); //TODO atmospheric or standard???
-                memcpy(&frame[9], &pmsData.particuleGT0_3, 12);
+                memcpy(&packet[3], pmsUseAtmoshphericMesure?&pmsData.pm1_0Atmospheric:&pmsData.pm1_0Standard, 6); //TODO atmospheric or standard???
+                memcpy(&packet[9], &pmsData.particuleGT0_3, 12);
                 break;
             default:
                 break;
             }
-            loraSendData(frame, 0);
+            
+            loraSendData(packet, 0);
+            updateEccFrame(packetEcc, packet);
+            lastEccSent++;
+
 
             //updating the datarate if necessary
             uint8_t newDatarate = loraGetDatarate();
             if(currentDatarate != newDatarate){
                 currentDatarate = newDatarate;
                 lastEccSent = 0; //reset the ecc count
-                clearFrameEcc(frameEcc);
+                clearPacketEcc(packetEcc);
+                getDynamicConfiguration(currentDatarate, &sendIntervalMinutes, &eccSendInterval, &dataToSend); //TODO : change eccSendInterval resets the ecc packet 
             }
 
-            getDynamicConfiguration(currentDatarate, &sendIntervalMinutes, &eccSendInterval, &dataToSend);
-            updateEccFrame(frameEcc, frame);
-
-            lastEccSent++;
             if(lastEccSent == eccSendInterval){
                 wakeUpMsgEcc.type = MSG_TYPE_ECC;
-                ztimer_set_msg(ZTIMER_SEC, &timerEcc, 60/*(sendIntervalMinutes/2)*60*/, &wakeUpMsgEcc, getpid());
+                ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerEcc, 10/2 /*(sendIntervalMinutes/2)*60*/, &wakeUpMsgEcc, getpid()); //send an ecc message between two measures
                 lastEccSent = 0;
-                DEBUG("[main] Next message will be ecc.\n");
+                DEBUG("[main] The next packet will be ecc.\n");
             } else if(lastEccSent>eccSendInterval){
-                DEBUG("[main] Should have sent ecc before... Resetting ecc count\n");
+                DEBUG("[main] The ecc packet should have been sent before, this should NEVER HAPPEN!!! Resetting ecc count.\n");
                 lastEccSent = 0;
-                clearFrameEcc(frameEcc);
+                clearPacketEcc(packetEcc);
             } else {
-                DEBUG("[main] %i messages to send before ecc.\n", eccSendInterval-lastEccSent);
+                DEBUG("[main] The next ecc packet will be sent in %i messages.\n", eccSendInterval-lastEccSent);
             }
             
-            wakeUpMsgMesure.type = MSG_TYPE_MESURE;
-            ztimer_set_msg(ZTIMER_SEC, &timerMesure, 60/*(sendIntervalMinutes*60)-(pmsUsePowersaveMode?30:0)*/, &wakeUpMsgMesure, getpid());
-        
+            wakeUpMsgMeasure.type = MSG_TYPE_MEASURE;
+            ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, 10/2/*((sendIntervalMinutes*60)-(pmsUsePowersaveMode?30:0))/2*/, &wakeUpMsgMeasure, getpid());
+
+
         } else if (msgRcv.type == MSG_TYPE_ECC) {
-            frameEcc[0] = packetNumber++;
-            loraSendData(frameEcc, 1);
-            clearFrameEcc(frameEcc); //if ecc was planned, stop it since it will be only 0
-            DEBUG("[main] Sent ECC frame\n");
+            
+            packetEcc[0] = packetNumber++;
+            loraSendData(packetEcc, 1);
+            clearPacketEcc(packetEcc);
+            DEBUG("[main] The ecc packet was sent.\n");
 
         } else if (msgRcv.type == MSG_TYPE_CONFIG_CHANGED){
-            clearFrameEcc(frameEcc);
+            //stop timers and reset ecc count
+            clearPacketEcc(packetEcc);
             lastEccSent = 0;
-            ztimer_remove(ZTIMER_SEC, &timerEcc);
-            DEBUG("[main] Configuration has changed!!\n");
-        } else {
-            DEBUG("[main] Unknown message received!!!\n");
+            ztimer_remove(ZTIMER_SEC, &wakeUpTimerEcc);
+            ztimer_remove(ZTIMER_SEC, &wakeUpTimerMeasure);
 
+            //get new configuration and start timer
+            currentDatarate = loraGetDatarate();
+            getDynamicConfiguration(currentDatarate, &sendIntervalMinutes, &eccSendInterval, &dataToSend);
+            wakeUpMsgMeasure.type = MSG_TYPE_MEASURE;
+            ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, 10/2/*((sendIntervalMinutes*60)-(pmsUsePowersaveMode?30:0))/2*/, &wakeUpMsgMeasure, getpid());
+
+            DEBUG("[main] Configuration has changed! Timers were reset with new configuration.\n");
+        } else {
+            DEBUG("[main] Unknown message received! THIS SOULD NEVER HAPPEN.\n");
         }
     }
 
