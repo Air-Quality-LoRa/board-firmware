@@ -1,4 +1,4 @@
-//TODO : remove
+// TODO : remove
 extern semtech_loramac_t loramac;
 extern sx126x_t sx126x;
 
@@ -17,7 +17,7 @@ void loraJoin(void);
 void loraGetConfigurationFromNetwork(void);
 
 /**
- * Give the datarate between 6 and 0 
+ * Give the datarate between 6 and 0
  */
 uint8_t loraGetDatarate(void);
 

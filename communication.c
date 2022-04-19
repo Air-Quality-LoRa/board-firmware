@@ -1,4 +1,4 @@
-#define ENABLE_DEBUG  (1)
+#define ENABLE_DEBUG (1)
 #include <debug.h>
 
 #include <net/loramac.h>
@@ -26,7 +26,8 @@ static uint8_t configurationIsValid = 0;
 
 static char watchdogThreadStack[THREAD_STACKSIZE_DEFAULT];
 
-static void *watchdogThread(void *arg){
+static void *watchdogThread(void *arg)
+{
     (void)arg;
     msg_t msg;
     msg_receive(&msg);
@@ -39,35 +40,38 @@ static void *watchdogThread(void *arg){
 kernel_pid_t pid_watchdog;
 // inline static void setLoraWatchdog(void){
 //     ztimer_set_msg(ZTIMER_SEC, &timerwatchdog, 30, &msgWatchdog, pid_watchdog);
-// }  
+// }
 
 // inline static void stopLoraWatchdog(void){
 //     ztimer_remove(ZTIMER_SEC, &timerwatchdog);
 // }
-
-
 
 static char loraDownlinkThreadStack[THREAD_STACKSIZE_DEFAULT];
 
 static void *loraDownlinkThread(void *arg)
 {
     msg_t msg;
-    kernel_pid_t mainPid = *(kernel_pid_t*)arg;
+    kernel_pid_t mainPid = *(kernel_pid_t *)arg;
 
     DEBUG("[communication] started downink thread\n");
-    
+
     int ret;
-    while (1) {
+    while (1)
+    {
         /* blocks until some data is received */
         ret = semtech_loramac_recv(&loramac);
-        if(ret == SEMTECH_LORAMAC_RX_DATA){
+        if (ret == SEMTECH_LORAMAC_RX_DATA)
+        {
             DEBUG("[communication] downlink : received data\n");
-            if(loramac.rx_data.payload_len >= 6){
+            if (loramac.rx_data.payload_len >= 6)
+            {
                 setDynamicConfig(loramac.rx_data.payload);
                 msg.type = MSG_TYPE_CONFIG_CHANGED;
                 msg_send(&msg, mainPid);
             }
-        } else {         
+        }
+        else
+        {
             DEBUG("[communication] downlink : recieved ack or link status\n");
         }
         DEBUG("[communication] Datarate is now %i\n", semtech_loramac_get_dr(&loramac));
@@ -76,16 +80,17 @@ static void *loraDownlinkThread(void *arg)
     return NULL;
 }
 
-uint8_t loraGetDatarate(void){
+uint8_t loraGetDatarate(void)
+{
     return semtech_loramac_get_dr(&loramac);
 }
 
+void loraJoin(void)
+{
 
-void loraJoin(void){
-
-    //temporary watchdog
+    // temporary watchdog
     pid_watchdog = thread_create(watchdogThreadStack, sizeof(watchdogThreadStack),
-              THREAD_PRIORITY_MAIN - 1, 0, watchdogThread, NULL, "watchdog thread");
+                                 THREAD_PRIORITY_MAIN - 1, 0, watchdogThread, NULL, "watchdog thread");
 
     uint8_t initDataRate = INIT_DATARATE;
     uint8_t waitBetweenJoinsSecs = 30;
@@ -93,27 +98,28 @@ void loraJoin(void){
     sx126x_setup(&sx126x, &sx126x_params[0], 0);
     loramac.netdev = &sx126x.netdev;
     loramac.netdev->driver = &sx126x_driver;
-    
-    if(semtech_loramac_init(&loramac)!=0){
+
+    if (semtech_loramac_init(&loramac) != 0)
+    {
         handleError("Could not init loramac");
     }
 
     semtech_loramac_set_deveui(&loramac, deveui);
     semtech_loramac_set_appeui(&loramac, appeui);
     semtech_loramac_set_appkey(&loramac, appkey);
-    
-    semtech_loramac_set_adr(&loramac, true); //enable adaptative data rate
-    semtech_loramac_set_tx_mode(&loramac, 1); //set unconfirmed uplink
+
+    semtech_loramac_set_adr(&loramac, true);  // enable adaptative data rate
+    semtech_loramac_set_tx_mode(&loramac, 1); // set unconfirmed uplink
 
     semtech_loramac_set_dr(&loramac, initDataRate);
     DEBUG("[communication] Starting join procedure: dr=%d\n", initDataRate);
 
     uint8_t joinRes;
-    //setLoraWatchdog();
+    // setLoraWatchdog();
 
     while ((joinRes = semtech_loramac_join(&loramac, LORAMAC_JOIN_OTAA)) != SEMTECH_LORAMAC_JOIN_SUCCEEDED)
     {
-        //stopLoraWatchdog();
+        // stopLoraWatchdog();
 
         DEBUG("[communication] Join procedure failed: code=%d \n", joinRes);
 
@@ -121,29 +127,30 @@ void loraJoin(void){
         {
             initDataRate--;
             semtech_loramac_set_dr(&loramac, initDataRate);
-        } else {
-            initDataRate = INIT_DATARATE-2; //Retry on higher SF
+        }
+        else
+        {
+            initDataRate = INIT_DATARATE - 2; // Retry on higher SF
         }
 
         DEBUG("[communication] Retry join procedure in %i sec. at dr=%d\n", waitBetweenJoinsSecs, initDataRate);
         ztimer_sleep(ZTIMER_SEC, waitBetweenJoinsSecs);
-        //setLoraWatchdog();
-
+        // setLoraWatchdog();
     }
-    //stopLoraWatchdog();
-
+    // stopLoraWatchdog();
 
     kernel_pid_t pid = getpid();
     thread_create(loraDownlinkThreadStack, sizeof(loraDownlinkThreadStack),
-              THREAD_PRIORITY_MAIN - 1, 0, loraDownlinkThread, &pid, "recv thread");
-            
+                  THREAD_PRIORITY_MAIN - 1, 0, loraDownlinkThread, &pid, "recv thread");
+
     DEBUG("[communication] Network joined!!\n");
-    //TODO remove this? downgrading datarate to be sure the first messages will be sent.
-    semtech_loramac_set_dr(&loramac, semtech_loramac_get_dr(&loramac)-1);
-    semtech_loramac_set_adr(&loramac, true); //enable adaptative data rate (idk if the adr enable before join worked?)
+    // TODO remove this? downgrading datarate to be sure the first messages will be sent.
+    semtech_loramac_set_dr(&loramac, semtech_loramac_get_dr(&loramac) - 1);
+    semtech_loramac_set_adr(&loramac, true); // enable adaptative data rate (idk if the adr enable before join worked?)
 }
 
-void loraGetConfigurationFromNetwork(void){
+void loraGetConfigurationFromNetwork(void)
+{
     configurationIsValid = 0;
 
     msg_t sendConfirmed = {0};
@@ -151,25 +158,27 @@ void loraGetConfigurationFromNetwork(void){
 
     ztimer_sleep(ZTIMER_SEC, 10);
 
-    do{
+    do
+    {
         semtech_loramac_set_tx_port(&loramac, 1);
-        //setLoraWatchdog();
+        // setLoraWatchdog();
         semtech_loramac_send(&loramac, NULL, 0);
-        //stopLoraWatchdog();
+        // stopLoraWatchdog();
 
         DEBUG("[communication] Asked the server for a configuration\n");
 
         messageReceived = ztimer_msg_receive_timeout(ZTIMER_SEC, &sendConfirmed, 20);
-        if(messageReceived>=0 && sendConfirmed.type != MSG_TYPE_CONFIG_CHANGED){
+        if (messageReceived >= 0 && sendConfirmed.type != MSG_TYPE_CONFIG_CHANGED)
+        {
             handleError("Received an unexpected message in loraGetConfiguration. Expected MSG_TYPE_CONFIG_CHANGED");
         }
-        ztimer_sleep(ZTIMER_SEC, 20); //TODO: optimise for low datarates, 60 seconds will exeed x on datarate < 2?
-    }while(messageReceived<=0);
+        ztimer_sleep(ZTIMER_SEC, 20); // TODO: optimise for low datarates, 60 seconds will exeed x on datarate < 2?
+    } while (messageReceived <= 0);
     DEBUG("[communication] The configuration was received\n");
-
 }
 
-void loraSendData(uint8_t data[], uint8_t type){
+void loraSendData(uint8_t data[], uint8_t type)
+{
 
     uint8_t len = 0;
 
@@ -190,17 +199,17 @@ void loraSendData(uint8_t data[], uint8_t type){
     default:
         len = 3;
     }
-    #ifdef ENABLE_DEBUG
+#ifdef ENABLE_DEBUG
     DEBUG("[communication] The message that will be sent is : ");
     printHexArray(data, len);
     DEBUG("\n");
-    #endif
+#endif
 
-    uint8_t port = _dataToSend+1+(type?3:0);
-    semtech_loramac_set_tx_port(&loramac, port); //dataToSend + 1 gives the port on witch data have to be sent
+    uint8_t port = _dataToSend + 1 + (type ? 3 : 0);
+    semtech_loramac_set_tx_port(&loramac, port); // dataToSend + 1 gives the port on witch data have to be sent
     DEBUG("[communication] The message will be sent on port : %d\n", port);
-    
-    //setLoraWatchdog();
-    // semtech_loramac_send(&loramac, data, len);
-    //stopLoraWatchdog();
+
+    // setLoraWatchdog();
+    //  semtech_loramac_send(&loramac, data, len);
+    // stopLoraWatchdog();
 }
