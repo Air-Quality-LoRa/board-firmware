@@ -144,11 +144,87 @@ void updateEccFrame(uint8_t *packetEcc, uint8_t *sentFrame)
     }
 }
 
+// =========== DEBUG STUFF ================
 #define RCV_QUEUE_SIZE 8
 static msg_t rcv_queue[RCV_QUEUE_SIZE];
 
+static char fakeConfigThreadStack[THREAD_STACKSIZE_DEFAULT];
+
+static inline uint8_t convertSymbolToHalfByte(char symbol)
+{
+    uint8_t ret = 0;
+    if (symbol > 47 && symbol < 58)
+    {
+        ret = symbol - 48;
+    }
+    else if (symbol > 64 && symbol < 71)
+    {
+        ret = symbol - 55;
+    }
+    else if (symbol > 96 && symbol < 103)
+    {
+        ret = symbol - 87;
+    }
+    return ret;
+}
+
+static void askInterractiveHexNumbers(uint8_t *dataPtr, uint8_t len)
+{
+    uint8_t state = 0;
+    for (uint8_t bytePtr = 0; bytePtr < len;)
+    {
+        int c = getchar();
+        if ((c > 47 && c < 58) || (c > 64 && c < 71) || (c > 96 && c < 103))
+        {
+            switch (state)
+            {
+            case 0:
+                state = 1;
+                dataPtr[bytePtr] = 0 | convertSymbolToHalfByte(c) << 4;
+                putchar(c);
+                fflush(stdout);
+                break;
+            case 1:
+                state = 0;
+                dataPtr[bytePtr++] |= convertSymbolToHalfByte(c);
+                putchar(c);
+                putchar(' ');
+                fflush(stdout);
+                break;
+            default:
+                break;
+            }
+        }
+    }
+    putchar('\n');
+}
+
+static void *fakeConfigThread(void *arg)
+{
+    msg_t msg;
+    kernel_pid_t mainPid = *(kernel_pid_t *)arg;
+
+    DEBUG("[main] started fakeConfigThread thread\n");
+
+    while (1)
+    {
+        uint8_t fakeFrame[6];
+        askInterractiveHexNumbers(fakeFrame, 6);
+        setDynamicConfig(fakeFrame);
+        msg.type = MSG_TYPE_CONFIG_CHANGED;
+        msg_send(&msg, mainPid);
+    }
+    return NULL;
+}
+
+// =========== END DEBUG STUFF ================
+
 int main(void)
 {
+    kernel_pid_t pid = getpid();
+    thread_create(fakeConfigThreadStack, sizeof(fakeConfigThreadStack),
+                  THREAD_PRIORITY_MAIN - 1, 0, fakeConfigThread, &pid, "fakeConfig thread");
+
     // Messages and timers
     msg_t wakeUpMsgMeasure = {0};
     msg_t wakeUpMsgEcc = {0};
