@@ -1,6 +1,9 @@
 #include <board.h>
 #include <semtech_loramac.h>
 
+#define PMS_MESURMENT_ALGORITHM_MEAN 0
+#define PMS_MESURMENT_ALGORITHM_MEDIAN 1
+
 //persistant configuration
 extern uint8_t deveui[LORAMAC_DEVEUI_LEN];
 extern uint8_t appeui[LORAMAC_APPEUI_LEN];

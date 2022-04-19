@@ -34,16 +34,16 @@ static void *watchdogThread(void *arg){
     return NULL;
 }
 
-ztimer_t timerwatchdog = {0};
-msg_t msgWatchdog = {0};
+// ztimer_t timerwatchdog = {0};
+// msg_t msgWatchdog = {0};
 kernel_pid_t pid_watchdog;
-inline static void setLoraWatchdog(void){
-    ztimer_set_msg(ZTIMER_SEC, &timerwatchdog, 30, &msgWatchdog, pid_watchdog);
-}  
+// inline static void setLoraWatchdog(void){
+//     ztimer_set_msg(ZTIMER_SEC, &timerwatchdog, 30, &msgWatchdog, pid_watchdog);
+// }  
 
-inline static void stopLoraWatchdog(void){
-    ztimer_remove(ZTIMER_SEC, &timerwatchdog);
-}
+// inline static void stopLoraWatchdog(void){
+//     ztimer_remove(ZTIMER_SEC, &timerwatchdog);
+// }
 
 
 
@@ -109,11 +109,11 @@ void loraJoin(void){
     DEBUG("[communication] Starting join procedure: dr=%d\n", initDataRate);
 
     uint8_t joinRes;
-    setLoraWatchdog();
+    //setLoraWatchdog();
 
     while ((joinRes = semtech_loramac_join(&loramac, LORAMAC_JOIN_OTAA)) != SEMTECH_LORAMAC_JOIN_SUCCEEDED)
     {
-        stopLoraWatchdog();
+        //stopLoraWatchdog();
 
         DEBUG("[communication] Join procedure failed: code=%d \n", joinRes);
 
@@ -127,10 +127,10 @@ void loraJoin(void){
 
         DEBUG("[communication] Retry join procedure in %i sec. at dr=%d\n", waitBetweenJoinsSecs, initDataRate);
         ztimer_sleep(ZTIMER_SEC, waitBetweenJoinsSecs);
-        setLoraWatchdog();
+        //setLoraWatchdog();
 
     }
-    stopLoraWatchdog();
+    //stopLoraWatchdog();
 
 
     kernel_pid_t pid = getpid();
@@ -150,9 +150,9 @@ void loraGetConfiguration(void){
     int messageReceived = 0;
     do{
         semtech_loramac_set_tx_port(&loramac, 1);
-        setLoraWatchdog();
+        //setLoraWatchdog();
         semtech_loramac_send(&loramac, NULL, 0);
-        stopLoraWatchdog();
+        //stopLoraWatchdog();
 
         DEBUG("[communication] Asked the server for a configuration!!----------------------------------\n");
 
@@ -195,7 +195,7 @@ void loraSendData(uint8_t data[], uint8_t type){
 
     semtech_loramac_set_tx_port(&loramac, _dataToSend+1+(type?3:0)); //dataToSend + 1 gives the port on witch data have to be sent
     
-    setLoraWatchdog();
+    //setLoraWatchdog();
     semtech_loramac_send(&loramac, data, len);
-    stopLoraWatchdog();
+    //stopLoraWatchdog();
 }

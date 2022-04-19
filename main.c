@@ -24,7 +24,7 @@
 #include "messages.h"
 #include "util.h"
 
-#define TIME_BEFORE_PROGRAM_START 5
+#define PROGRAM_START_AFTER_SEC 5
 
 // devices
 i2c_t i2c_dev = I2C_DEV(0);
@@ -44,10 +44,17 @@ static void* waitUserInterractionThread(void *arg){
 
 void configure(void){
     //Wait to give a chance to the user to see the message
-    ztimer_sleep(ZTIMER_SEC, TIME_BEFORE_PROGRAM_START);
+    ztimer_sleep(ZTIMER_SEC, PROGRAM_START_AFTER_SEC);
 
+    loadConfig();
+
+    #ifdef ENABLE_DEBUG
+    printf("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
+    #endif
+    printConfig();
+
+    printf("The program will start automatically in %i seconds. Press z to change configuration...\n", PROGRAM_START_AFTER_SEC);
     //Create a thread to perform the blocking getchar()
-
     uint8_t userInterracted = 0;
     thread_create(
         waitUserInterractionStack,
@@ -58,14 +65,7 @@ void configure(void){
         &userInterracted,
         "get user interraction thread");
 
-    loadConfig();
-
-    //printf("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
-    printConfig();
-
-    printf("The program will start automatically in %i seconds. Press z to configure...\n", TIME_BEFORE_PROGRAM_START);
-
-    ztimer_sleep(ZTIMER_SEC, TIME_BEFORE_PROGRAM_START);
+    ztimer_sleep(ZTIMER_SEC, PROGRAM_START_AFTER_SEC);
 
     while(userInterracted){
         interactiveConfig();
@@ -73,7 +73,7 @@ void configure(void){
         printf("The configuration was saved!\n");
 
         printConfig();
-        printf("The program will start automatically in %i seconds. Press z to configure...\n", TIME_BEFORE_PROGRAM_START);
+        printf("The program will start automatically in %i seconds. Press z to configure...\n", PROGRAM_START_AFTER_SEC);
 
         userInterracted=0;
         thread_create(
@@ -85,7 +85,7 @@ void configure(void){
             &userInterracted,
             "get user interraction thread");
 
-        ztimer_sleep(ZTIMER_SEC, TIME_BEFORE_PROGRAM_START);
+        ztimer_sleep(ZTIMER_SEC, PROGRAM_START_AFTER_SEC);
     }
 
     printf("Starting!\n");
@@ -96,13 +96,14 @@ void configure(void){
     if(bmx280_init(&bme_dev, &bmx280_params[0]) != BMX280_OK){
         printf("WARNING : BME280 is not reachable, check if it is correctly connected!\n");
     }
+    //TODO : stop main uart?
 }
 
 uint8_t getTemperatureByte(int16_t temperature)
-{
-    if(temperature == INT16_MIN){
-        handleError("Could not read temperature.");
-    }
+{   //TODO secure this
+    // if(temperature == INT16_MIN){
+    //     handleError("Could not read temperature.");
+    // }
     if(temperature <= -2000){
         return 0;
     }
@@ -210,7 +211,7 @@ int main(void)
             lastEccSent++;
             if(lastEccSent == eccSendInterval){
                 wakeUpMsgEcc.type = MSG_TYPE_ECC;
-                ztimer_set_msg(ZTIMER_SEC, &timerEcc, 30/*(sendIntervalMinutes/2)*60*/, &wakeUpMsgEcc, getpid());
+                ztimer_set_msg(ZTIMER_SEC, &timerEcc, 60/*(sendIntervalMinutes/2)*60*/, &wakeUpMsgEcc, getpid());
                 lastEccSent = 0;
                 DEBUG("[main] Next message will be ecc.\n");
             } else if(lastEccSent>eccSendInterval){
@@ -222,7 +223,7 @@ int main(void)
             }
             
             wakeUpMsgMesure.type = MSG_TYPE_MESURE;
-            ztimer_set_msg(ZTIMER_SEC, &timerMesure, 60 /*(sendIntervalMinutes*60)-(pmsUsePowersaveMode?30:0)*/, &wakeUpMsgMesure, getpid());
+            ztimer_set_msg(ZTIMER_SEC, &timerMesure, 60/*(sendIntervalMinutes*60)-(pmsUsePowersaveMode?30:0)*/, &wakeUpMsgMesure, getpid());
         
         } else if (msgRcv.type == MSG_TYPE_ECC) {
             frameEcc[0] = packetNumber++;

@@ -15,6 +15,8 @@ uint8_t appeui[LORAMAC_APPEUI_LEN];
 uint8_t appkey[LORAMAC_APPKEY_LEN];
 uint8_t pmsUseAtmoshphericMesure; //true is atmoshperic, false standard
 uint8_t pmsUsePowersaveMode;
+uint8_t pmsNumberOfMesures;
+uint8_t pmsMesurementAlgorithm; //see PMS_MESURMENT_XXX
 
 uint8_t _sendIntervalMinutes[6];
 uint8_t _eccSendInterval[6];
@@ -35,7 +37,7 @@ static inline uint8_t convertSymbolToHalfByte(char symbol){
     return ret;
 }
 
-static void askHexString(uint8_t* dataPtr, uint8_t len)
+static void askInterractiveHexNumbers(uint8_t* dataPtr, uint8_t len)
 {
     uint8_t state = 0;
     for(uint8_t bytePtr = 0;bytePtr<len;){
@@ -65,6 +67,31 @@ static void askHexString(uint8_t* dataPtr, uint8_t len)
 
 }
 
+static void askInterractiveNumber(uint8_t* number){
+    char c;
+    do{
+        c = getchar();
+    }while(c<'1' || c>'9');
+    putchar(c);
+    fflush(stdout);
+    *number = c-'0';
+
+    uint8_t tmpUser;
+    while(*number*10<256){
+        do{
+            c = getchar();
+        }while(!((c>='0' && c<='9') || (c=='\r' || c=='\n')));
+
+        if (c=='\r' || c=='\n') return;
+        tmpUser = c-'0';
+        if(*number*10+tmpUser<256){
+            putchar(c);
+            fflush(stdout);
+            *number = *number*10+tmpUser;
+        }
+    }
+}
+
 void loadConfig(void){
     flashpage_read(127, flashPage);
     
@@ -74,10 +101,12 @@ void loadConfig(void){
 
     pmsUsePowersaveMode = *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN);
     pmsUseAtmoshphericMesure = *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN+1);
+    pmsNumberOfMesures = *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN+2);
+    pmsMesurementAlgorithm = *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN+3);
 
     DEBUG("The flashpage read is :");
     #if ENABLE_DEBUG
-    printHexArray(flashPage, LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN+2);
+    printHexArray(flashPage, LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN+4);
     #endif
     DEBUG("\n");
 
@@ -99,7 +128,18 @@ void printConfig(void){
     pmsUsePowersaveMode?printf("yes"):printf("no");
     printf("\npms concentration mesure : ");
     pmsUseAtmoshphericMesure?printf("atmospheric"):printf("standard");
-
+    printf("\npms number of mesures : %i", pmsNumberOfMesures);
+    printf("\npms mesurement algorithm : ");
+    switch (pmsMesurementAlgorithm)
+    {
+    case PMS_MESURMENT_ALGORITHM_MEDIAN:
+        printf("median");
+        break;
+    default:
+    case PMS_MESURMENT_ALGORITHM_MEAN:
+        printf("mean");
+        break;
+    }
     printf("\n");
 }
 
@@ -108,21 +148,22 @@ void interactiveConfig(void){
     printf("Example: 01 02 70 A7 F3 55 7E B8\n");
     
     printf("\ndeveui : \n");
-    askHexString(deveui, LORAMAC_DEVEUI_LEN);
+    askInterractiveHexNumbers(deveui, LORAMAC_DEVEUI_LEN);
 
     printf("\nappeui : \n");
-    askHexString(appeui, LORAMAC_APPEUI_LEN);
+    askInterractiveHexNumbers(appeui, LORAMAC_APPEUI_LEN);
 
     printf("\nappkey : \n");
-    askHexString(appkey, LORAMAC_APPKEY_LEN);
+    askInterractiveHexNumbers(appkey, LORAMAC_APPKEY_LEN);
 
-    printf("\n\nPMS configuraiton:\n");
+    printf("\n\nPMS configuration:\n");
     int c;
-    printf("Use atmospheric mesure (a) or standard mesure (s) : \n");
+    printf("\nUse atmospheric mesure (a) or standard mesure (s) : \n");
     do{
         c = getchar();
     }while(c!='a' && c!='s');
     putchar(c);
+    putchar('\n');
     fflush(stdout);
     pmsUseAtmoshphericMesure = (c=='a');
 
@@ -132,10 +173,19 @@ void interactiveConfig(void){
     }while(c!='y' && c!='n');
     putchar(c);
     putchar('\n');
-
     fflush(stdout);
     pmsUsePowersaveMode = (c=='y');
 
+    printf("\nNumer of mesures (between 1 and 255): \n");
+    askInterractiveNumber(&pmsNumberOfMesures); //See if the card have enough ram for 256 mesures
+
+    printf("\n\nMesurement algorithm mean (0), median (1): \n");
+    do{
+        c = getchar();
+    }while(c<'0' || c>'1');
+    putchar(c);
+    fflush(stdout);
+    pmsMesurementAlgorithm = c-'0';
 }
 
 void saveConfig(void){
@@ -145,6 +195,8 @@ void saveConfig(void){
 
     *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN) = pmsUsePowersaveMode;
     *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN+1) = pmsUseAtmoshphericMesure;
+    *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN+2) = pmsNumberOfMesures;
+    *(flashPage+LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN+3) = pmsMesurementAlgorithm;
 
     DEBUG("[configuration] updated static configuration\n");
 
@@ -152,7 +204,7 @@ void saveConfig(void){
 
     DEBUG("The flashpage written is :");
     #if ENABLE_DEBUG
-    printHexArray(flashPage, LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN+2);
+    printHexArray(flashPage, LORAMAC_DEVEUI_LEN+LORAMAC_APPEUI_LEN+LORAMAC_APPKEY_LEN+4);
     #endif
     DEBUG("\n");
 }
