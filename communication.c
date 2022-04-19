@@ -82,12 +82,17 @@ static void *loraDownlinkThread(void *arg)
 
 uint8_t loraGetDatarate(void)
 {
+    return 6;
     return semtech_loramac_get_dr(&loramac);
 }
 
 void loraJoin(void)
 {
-
+    DEBUG("[COMMUNICATION] Fake lora join\n");
+    uint8_t conf[6] = {0xf9,0xf9,0xf9,0xf9,0xf9,0xf9};
+    setDynamicConfig(conf);
+    return;
+    
     // temporary watchdog
     pid_watchdog = thread_create(watchdogThreadStack, sizeof(watchdogThreadStack),
                                  THREAD_PRIORITY_MAIN - 1, 0, watchdogThread, NULL, "watchdog thread");
@@ -151,6 +156,10 @@ void loraJoin(void)
 
 void loraGetConfigurationFromNetwork(void)
 {
+
+    DEBUG("[COMMUNICATION] Fake get configuration from network.\n");
+    return;
+
     configurationIsValid = 0;
 
     msg_t sendConfirmed = {0};
@@ -174,7 +183,7 @@ void loraGetConfigurationFromNetwork(void)
         }
         ztimer_sleep(ZTIMER_SEC, 20); // TODO: optimise for low datarates, 60 seconds will exeed x on datarate < 2?
     } while (messageReceived <= 0);
-    DEBUG("[communication] The configuration was received\n");
+    DEBUG("[communication] The configuration was received.\n");
 }
 
 void loraSendData(uint8_t data[], uint8_t type)

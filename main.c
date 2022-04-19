@@ -144,6 +144,9 @@ void updateEccFrame(uint8_t *packetEcc, uint8_t *sentFrame)
     }
 }
 
+#define RCV_QUEUE_SIZE 8
+static msg_t rcv_queue[RCV_QUEUE_SIZE];
+
 int main(void)
 {
     // Messages and timers
@@ -162,6 +165,8 @@ int main(void)
 
     struct pms7003Data pmsData;
 
+    msg_init_queue(rcv_queue, RCV_QUEUE_SIZE);
+
     configure(); // interractive
 
     loraJoin();
@@ -176,7 +181,7 @@ int main(void)
 
     // TODO : send first measure asap
     wakeUpMsgMeasure.type = MSG_TYPE_MEASURE;
-    ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, 10 /*4*60*/, &wakeUpMsgMeasure, getpid());
+    ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, 4 /*4*60*/, &wakeUpMsgMeasure, getpid());
 
     // main loop
     while (1)
@@ -188,10 +193,10 @@ int main(void)
 
             pms7003_measure(&pmsData);
 
-#if ENABLE_DEBUG
-            pms7003_print(&pmsData);
-            printf("\n");
-#endif
+            // #if ENABLE_DEBUG
+            //             pms7003_print(&pmsData);
+            //             printf("\n");
+            // #endif
 
             packet[0] = packetNumber++; // at 255 it will overflow and return to 0
             packet[1] = getTemperatureByte(bmx280_read_temperature(&bme_dev));
@@ -230,7 +235,7 @@ int main(void)
             if (lastEccSent == eccSendInterval)
             {
                 wakeUpMsgEcc.type = MSG_TYPE_ECC;
-                ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerEcc, 10 / 2 /*(sendIntervalMinutes/2)*60*/, &wakeUpMsgEcc, getpid()); // send an ecc message between two measures
+                ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerEcc, 2 / 2 /*(sendIntervalMinutes/2)*60*/, &wakeUpMsgEcc, getpid()); // send an ecc message between two measures
                 lastEccSent = 0;
                 DEBUG("[main] The next packet will be ecc.\n");
             }
@@ -246,7 +251,7 @@ int main(void)
             }
 
             wakeUpMsgMeasure.type = MSG_TYPE_MEASURE;
-            ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, 10 / 2 /*((sendIntervalMinutes*60)-(pmsUsePowersaveMode?30:0))/2*/, &wakeUpMsgMeasure, getpid());
+            ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, 4 / 2 /*((sendIntervalMinutes*60)-(pmsUsePowersaveMode?30:0))/2*/, &wakeUpMsgMeasure, getpid());
         }
         else if (msgRcv.type == MSG_TYPE_ECC)
         {
@@ -268,7 +273,7 @@ int main(void)
             currentDatarate = loraGetDatarate();
             getDynamicConfiguration(currentDatarate, &sendIntervalMinutes, &eccSendInterval, &dataToSend);
             wakeUpMsgMeasure.type = MSG_TYPE_MEASURE;
-            ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, 10 / 2 /*((sendIntervalMinutes*60)-(pmsUsePowersaveMode?30:0))/2*/, &wakeUpMsgMeasure, getpid());
+            ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, 4 / 2 /*((sendIntervalMinutes*60)-(pmsUsePowersaveMode?30:0))/2*/, &wakeUpMsgMeasure, getpid());
 
             DEBUG("[main] Configuration has changed! Timers were reset with new configuration.\n");
         }

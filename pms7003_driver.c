@@ -7,7 +7,7 @@
 #include "ztimer.h"
 #include "messages.h"
 
-#define ENABLE_DEBUG 0
+#define ENABLE_DEBUG (0)
 #include "debug.h"
 
 #define USED_UART UART_DEV(1)
@@ -485,7 +485,7 @@ void* _pms7003_event_loop(void *arg){
             } else {
                 DEBUG("[pms7003] user read event added to queue\n");
             }
-            #ifdef ENABLE_DEBUG
+            #if ENABLE_DEBUG
             queue_print();
             #endif
 
