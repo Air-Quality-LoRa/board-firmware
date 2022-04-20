@@ -257,7 +257,7 @@ int main(void)
 
     // TODO : send first measure asap
     wakeUpMsgMeasure.type = MSG_TYPE_MEASURE;
-    ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, 4 /*4*60*/, &wakeUpMsgMeasure, getpid());
+    ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, 1 /*4*60*/, &wakeUpMsgMeasure, getpid());
 
     // main loop
     while (1)
@@ -308,30 +308,32 @@ int main(void)
                 getDynamicConfiguration(currentDatarate, &sendIntervalMinutes, &eccSendInterval, &dataToSend); // TODO : change eccSendInterval resets the ecc packet
             }
 
-            if (lastEccSent == eccSendInterval)
+            if (eccSendInterval != 0)
             {
-                wakeUpMsgEcc.type = MSG_TYPE_ECC;
-                ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerEcc, 2 / 2 /*(sendIntervalMinutes/2)*60*/, &wakeUpMsgEcc, getpid()); // send an ecc message between two measures
-                lastEccSent = 0;
-                DEBUG("[main] The next packet will be ecc.\n");
-            }
-            else if (lastEccSent > eccSendInterval)
-            {
-                DEBUG("[main] The ecc packet should have been sent before, this should NEVER HAPPEN!!! Resetting ecc count.\n");
-                lastEccSent = 0;
-                clearPacketEcc(packetEcc);
-            }
-            else
-            {
-                DEBUG("[main] The next ecc packet will be sent in %i messages.\n", eccSendInterval - lastEccSent);
+                if (lastEccSent == eccSendInterval)
+                {
+                    wakeUpMsgEcc.type = MSG_TYPE_ECC;
+                    ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerEcc, (sendIntervalMinutes * 60) / 2 / 300, &wakeUpMsgEcc, getpid()); // send an ecc message between two measures
+                    lastEccSent = 0;
+                    DEBUG("[main] The next packet will be ecc.\n");
+                }
+                else if (lastEccSent > eccSendInterval)
+                {
+                    DEBUG("[main] The ecc packet should have been sent before, this should NEVER HAPPEN!!! Resetting ecc count.\n");
+                    lastEccSent = 0;
+                    clearPacketEcc(packetEcc);
+                }
+                else
+                {
+                    DEBUG("[main] The next ecc packet will be sent in %i messages.\n", eccSendInterval - lastEccSent);
+                }
             }
 
             wakeUpMsgMeasure.type = MSG_TYPE_MEASURE;
-            ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, 4 / 2 /*((sendIntervalMinutes*60)-(pmsUsePowersaveMode?30:0))/2*/, &wakeUpMsgMeasure, getpid());
+            ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, ((sendIntervalMinutes * 60) - (pmsUsePowersaveMode ? 30 : 0)) / 300, &wakeUpMsgMeasure, getpid());
         }
         else if (msgRcv.type == MSG_TYPE_ECC)
         {
-
             packetEcc[0] = packetNumber++;
             loraSendData(packetEcc, 1);
             clearPacketEcc(packetEcc);
@@ -349,13 +351,13 @@ int main(void)
             currentDatarate = loraGetDatarate();
             getDynamicConfiguration(currentDatarate, &sendIntervalMinutes, &eccSendInterval, &dataToSend);
             wakeUpMsgMeasure.type = MSG_TYPE_MEASURE;
-            ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, 4 / 2 /*((sendIntervalMinutes*60)-(pmsUsePowersaveMode?30:0))/2*/, &wakeUpMsgMeasure, getpid());
+            ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, ((sendIntervalMinutes * 60) - (pmsUsePowersaveMode ? 30 : 0)) / 300, &wakeUpMsgMeasure, getpid());
 
             DEBUG("[main] Configuration has changed! Timers were reset with new configuration.\n");
         }
         else
         {
-            DEBUG("[main] Unknown message received! THIS SOULD NEVER HAPPEN.\n");
+            DEBUG("[main] Unknown message received! THIS SHOULD NEVER HAPPEN.\n");
         }
     }
 
