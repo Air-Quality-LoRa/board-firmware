@@ -53,7 +53,7 @@ static void *loraDownlinkThread(void *arg)
     msg_t msg;
     kernel_pid_t mainPid = *(kernel_pid_t *)arg;
 
-    DEBUG("[communication] started downink thread\n");
+    DEBUG("[communication - downlink thread] started downink thread\n");
 
     int ret;
     while (1)
@@ -62,7 +62,7 @@ static void *loraDownlinkThread(void *arg)
         ret = semtech_loramac_recv(&loramac);
         if (ret == SEMTECH_LORAMAC_RX_DATA)
         {
-            DEBUG("[communication] downlink : received data\n");
+            DEBUG("[communication - downlink thread] received data\n");
             if (loramac.rx_data.payload_len >= 6)
             {
                 setDynamicConfig(loramac.rx_data.payload);
@@ -72,27 +72,21 @@ static void *loraDownlinkThread(void *arg)
         }
         else
         {
-            DEBUG("[communication] downlink : recieved ack or link status\n");
+            DEBUG("[communication - downlink thread] recieved ack or link status\n");
         }
-        DEBUG("[communication] Datarate is now %i\n", semtech_loramac_get_dr(&loramac));
-        DEBUG("[communication] semtech_loramac_recv returned %i\n", ret);
+        DEBUG("[communication - downlink thread] Datarate is now %i\n", semtech_loramac_get_dr(&loramac));
+        DEBUG("[communication - downlink thread] semtech_loramac_recv returned %i\n", ret);
     }
     return NULL;
 }
 
 uint8_t loraGetDatarate(void)
 {
-    return 6;
     return semtech_loramac_get_dr(&loramac);
 }
 
 void loraJoin(void)
-{
-    DEBUG("[COMMUNICATION] Fake lora join\n");
-    uint8_t conf[6] = {0xf9,0xf9,0xf9,0xf9,0xf9,0xf9};
-    setDynamicConfig(conf);
-    return;
-    
+{    
     // temporary watchdog
     pid_watchdog = thread_create(watchdogThreadStack, sizeof(watchdogThreadStack),
                                  THREAD_PRIORITY_MAIN - 1, 0, watchdogThread, NULL, "watchdog thread");
@@ -156,10 +150,6 @@ void loraJoin(void)
 
 void loraGetConfigurationFromNetwork(void)
 {
-
-    DEBUG("[COMMUNICATION] Fake get configuration from network.\n");
-    return;
-
     configurationIsValid = 0;
 
     msg_t sendConfirmed = {0};
@@ -167,14 +157,15 @@ void loraGetConfigurationFromNetwork(void)
 
     ztimer_sleep(ZTIMER_SEC, 10);
 
-    do
+    do //loop until receive thread send us a MSG_TYPE_CONFIG_CHANGED message
     {
+        DEBUG("[communication] Asking the server for a configuration.\n");
+
         semtech_loramac_set_tx_port(&loramac, 1);
         // setLoraWatchdog();
         semtech_loramac_send(&loramac, NULL, 0);
         // stopLoraWatchdog();
 
-        DEBUG("[communication] Asked the server for a configuration\n");
 
         messageReceived = ztimer_msg_receive_timeout(ZTIMER_SEC, &sendConfirmed, 20);
         if (messageReceived >= 0 && sendConfirmed.type != MSG_TYPE_CONFIG_CHANGED)
@@ -219,6 +210,6 @@ void loraSendData(uint8_t data[], uint8_t type)
     DEBUG("[communication] The message will be sent on port : %d\n", port);
 
     // setLoraWatchdog();
-    //  semtech_loramac_send(&loramac, data, len);
+    semtech_loramac_send(&loramac, data, len);
     // stopLoraWatchdog();
 }

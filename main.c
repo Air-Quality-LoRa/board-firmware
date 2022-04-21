@@ -144,120 +144,62 @@ void updateEccFrame(uint8_t *packetEcc, uint8_t *sentFrame)
     }
 }
 
-// =========== DEBUG STUFF ================
 #define RCV_QUEUE_SIZE 8
 static msg_t rcv_queue[RCV_QUEUE_SIZE];
 
-static char fakeConfigThreadStack[THREAD_STACKSIZE_DEFAULT];
+// Messages and timers
+msg_t wakeUpMsgMeasure = {0};
+msg_t wakeUpMsgEcc = {0};
+msg_t msgRcv = {0};
+ztimer_t wakeUpTimerMeasure = {0};
+ztimer_t wakeUpTimerEcc = {0};
 
-static inline uint8_t convertSymbolToHalfByte(char symbol)
+// packet numbers and data
+uint8_t packetNumber = 0;
+uint8_t lastEccSent = 0;
+uint8_t packet[21];
+uint8_t packetEcc[21];
+
+// dynamic configuration
+uint8_t currentDatarate;
+uint8_t sendIntervalMinutes;
+uint8_t eccSendInterval;
+enum dataToSend dataToSend;
+
+void reconfigureTimers(void)
 {
-    uint8_t ret = 0;
-    if (symbol > 47 && symbol < 58)
-    {
-        ret = symbol - 48;
-    }
-    else if (symbol > 64 && symbol < 71)
-    {
-        ret = symbol - 55;
-    }
-    else if (symbol > 96 && symbol < 103)
-    {
-        ret = symbol - 87;
-    }
-    return ret;
+    // stop timers and reset ecc count
+    clearPacketEcc(packetEcc);
+    lastEccSent = 0;
+    ztimer_remove(ZTIMER_SEC, &wakeUpTimerEcc);
+    ztimer_remove(ZTIMER_SEC, &wakeUpTimerMeasure);
+
+    // get new configuration and start timer
+    currentDatarate = loraGetDatarate();
+    getDynamicConfiguration(currentDatarate, &sendIntervalMinutes, &eccSendInterval, &dataToSend);
+    wakeUpMsgMeasure.type = MSG_TYPE_MEASURE;
+    ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, ((sendIntervalMinutes * 60) - (pmsUsePowersaveMode ? 30 : 0)), &wakeUpMsgMeasure, getpid());
 }
-
-static void askInterractiveHexNumbers(uint8_t *dataPtr, uint8_t len)
-{
-    uint8_t state = 0;
-    for (uint8_t bytePtr = 0; bytePtr < len;)
-    {
-        int c = getchar();
-        if ((c > 47 && c < 58) || (c > 64 && c < 71) || (c > 96 && c < 103))
-        {
-            switch (state)
-            {
-            case 0:
-                state = 1;
-                dataPtr[bytePtr] = 0 | convertSymbolToHalfByte(c) << 4;
-                putchar(c);
-                fflush(stdout);
-                break;
-            case 1:
-                state = 0;
-                dataPtr[bytePtr++] |= convertSymbolToHalfByte(c);
-                putchar(c);
-                putchar(' ');
-                fflush(stdout);
-                break;
-            default:
-                break;
-            }
-        }
-    }
-    putchar('\n');
-}
-
-static void *fakeConfigThread(void *arg)
-{
-    msg_t msg;
-    kernel_pid_t mainPid = *(kernel_pid_t *)arg;
-
-    DEBUG("[main] started fakeConfigThread thread\n");
-
-    while (1)
-    {
-        uint8_t fakeFrame[6];
-        askInterractiveHexNumbers(fakeFrame, 6);
-        setDynamicConfig(fakeFrame);
-        msg.type = MSG_TYPE_CONFIG_CHANGED;
-        msg_send(&msg, mainPid);
-    }
-    return NULL;
-}
-
-// =========== END DEBUG STUFF ================
 
 int main(void)
 {
-    kernel_pid_t pid = getpid();
-    thread_create(fakeConfigThreadStack, sizeof(fakeConfigThreadStack),
-                  THREAD_PRIORITY_MAIN - 1, 0, fakeConfigThread, &pid, "fakeConfig thread");
-
-    // Messages and timers
-    msg_t wakeUpMsgMeasure = {0};
-    msg_t wakeUpMsgEcc = {0};
-    msg_t msgRcv = {0};
-    ztimer_t wakeUpTimerMeasure = {0};
-    ztimer_t wakeUpTimerEcc = {0};
-
-    // packet numbers and data
-    uint8_t packetNumber = 0;
-    uint8_t lastEccSent = 0;
-    uint8_t packet[21];
-    uint8_t packetEcc[21];
-    clearPacketEcc(packetEcc);
-
     struct pms7003Data pmsData;
-
     msg_init_queue(rcv_queue, RCV_QUEUE_SIZE);
+
+    clearPacketEcc(packetEcc);
 
     configure(); // interractive
 
     loraJoin();
     loraGetConfigurationFromNetwork();
 
-    uint8_t currentDatarate = loraGetDatarate();
+    currentDatarate = loraGetDatarate();
 
-    uint8_t sendIntervalMinutes;
-    uint8_t eccSendInterval;
-    enum dataToSend dataToSend;
     getDynamicConfiguration(currentDatarate, &sendIntervalMinutes, &eccSendInterval, &dataToSend);
 
-    // TODO : send first measure asap
+    // TODO : send first measure asap, sendInterval=5 -> send mesure in 1 minute
     wakeUpMsgMeasure.type = MSG_TYPE_MEASURE;
-    ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, 1 /*4*60*/, &wakeUpMsgMeasure, getpid());
+    ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, sendIntervalMinutes * 60 / 5, &wakeUpMsgMeasure, getpid());
 
     // main loop
     while (1)
@@ -269,10 +211,9 @@ int main(void)
 
             pms7003_measure(&pmsData);
 
-            // #if ENABLE_DEBUG
-            //             pms7003_print(&pmsData);
-            //             printf("\n");
-            // #endif
+#if ENABLE_DEBUG
+            pms7003_print(&pmsData);
+#endif
 
             packet[0] = packetNumber++; // at 255 it will overflow and return to 0
             packet[1] = getTemperatureByte(bmx280_read_temperature(&bme_dev));
@@ -287,7 +228,7 @@ int main(void)
                 memcpy(&packet[3], &pmsData.particuleGT0_3, 12);
                 break;
             case all:
-                memcpy(&packet[3], pmsUseAtmoshphericMesure ? &pmsData.pm1_0Atmospheric : &pmsData.pm1_0Standard, 6); // TODO atmospheric or standard???
+                memcpy(&packet[3], pmsUseAtmoshphericMesure ? &pmsData.pm1_0Atmospheric : &pmsData.pm1_0Standard, 6);
                 memcpy(&packet[9], &pmsData.particuleGT0_3, 12);
                 break;
             default:
@@ -302,10 +243,8 @@ int main(void)
             uint8_t newDatarate = loraGetDatarate();
             if (currentDatarate != newDatarate)
             {
-                currentDatarate = newDatarate;
-                lastEccSent = 0; // reset the ecc count
-                clearPacketEcc(packetEcc);
-                getDynamicConfiguration(currentDatarate, &sendIntervalMinutes, &eccSendInterval, &dataToSend); // TODO : change eccSendInterval resets the ecc packet
+                reconfigureTimers();
+                DEBUG("[main] The datarate changed, timers were reset with new configuration.\n");
             }
 
             if (eccSendInterval != 0)
@@ -313,7 +252,7 @@ int main(void)
                 if (lastEccSent == eccSendInterval)
                 {
                     wakeUpMsgEcc.type = MSG_TYPE_ECC;
-                    ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerEcc, (sendIntervalMinutes * 60) / 2 / 300, &wakeUpMsgEcc, getpid()); // send an ecc message between two measures
+                    ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerEcc, (sendIntervalMinutes * 60) / 2, &wakeUpMsgEcc, getpid()); // send an ecc message between two measures
                     lastEccSent = 0;
                     DEBUG("[main] The next packet will be ecc.\n");
                 }
@@ -330,7 +269,7 @@ int main(void)
             }
 
             wakeUpMsgMeasure.type = MSG_TYPE_MEASURE;
-            ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, ((sendIntervalMinutes * 60) - (pmsUsePowersaveMode ? 30 : 0)) / 300, &wakeUpMsgMeasure, getpid());
+            ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, ((sendIntervalMinutes * 60) - (pmsUsePowersaveMode ? 30 : 0)), &wakeUpMsgMeasure, getpid());
         }
         else if (msgRcv.type == MSG_TYPE_ECC)
         {
@@ -341,18 +280,7 @@ int main(void)
         }
         else if (msgRcv.type == MSG_TYPE_CONFIG_CHANGED)
         {
-            // stop timers and reset ecc count
-            clearPacketEcc(packetEcc);
-            lastEccSent = 0;
-            ztimer_remove(ZTIMER_SEC, &wakeUpTimerEcc);
-            ztimer_remove(ZTIMER_SEC, &wakeUpTimerMeasure);
-
-            // get new configuration and start timer
-            currentDatarate = loraGetDatarate();
-            getDynamicConfiguration(currentDatarate, &sendIntervalMinutes, &eccSendInterval, &dataToSend);
-            wakeUpMsgMeasure.type = MSG_TYPE_MEASURE;
-            ztimer_set_msg(ZTIMER_SEC, &wakeUpTimerMeasure, ((sendIntervalMinutes * 60) - (pmsUsePowersaveMode ? 30 : 0)) / 300, &wakeUpMsgMeasure, getpid());
-
+            reconfigureTimers();
             DEBUG("[main] Configuration has changed! Timers were reset with new configuration.\n");
         }
         else
